@@ -1,0 +1,104 @@
+01/08/2026 12:29:47 - ERROR - log_erro - Falha ao inicializar o motor PaddleOCR | Detalhe: Unknown argument: show_log
+Traceback (most recent call last):
+  File "c:\Users\AB-ADVOGADOS\Desktop\Converter .md\PADDLEOCR 2\PDF2MD_V2\ocr\manager.py", line 13, in inicializar_se_necessario
+    self.motor = PaddleOCR(
+                 ^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\ocr.py", line 173, in __init__
+    super().__init__(**base_params)
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\base.py", line 63, in __init__
+    self._common_args = parse_common_args(
+                        ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_common_args.py", line 54, in parse_common_args
+    raise ValueError(f"Unknown argument: {name}")
+ValueError: Unknown argument: show_log
+01/08/2026 12:45:58 - ERROR - log_erro - Falha ao inicializar o motor PaddleOCR | Detalhe: Unknown argument: show_log
+Traceback (most recent call last):
+  File "c:\Users\AB-ADVOGADOS\Desktop\Converter .md\PADDLEOCR 2\PDF2MD_V2\ocr\manager.py", line 13, in inicializar_se_necessario
+    self.motor = PaddleOCR(
+                 ^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\ocr.py", line 173, in __init__
+    super().__init__(**base_params)
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\base.py", line 63, in __init__
+    self._common_args = parse_common_args(
+                        ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_common_args.py", line 54, in parse_common_args
+    raise ValueError(f"Unknown argument: {name}")
+ValueError: Unknown argument: show_log
+01/08/2026 12:54:01 - ERROR - log_erro - Falha ao inicializar o motor PaddleOCR | Detalhe: Unknown argument: show_log
+Traceback (most recent call last):
+  File "c:\Users\AB-ADVOGADOS\Desktop\Converter .md\PADDLEOCR 2\PDF2MD_V2\ocr\manager.py", line 13, in inicializar_se_necessario
+    self.motor = PaddleOCR(
+                 ^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\ocr.py", line 173, in __init__
+    super().__init__(**base_params)
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\base.py", line 63, in __init__
+    self._common_args = parse_common_args(
+                        ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_common_args.py", line 54, in parse_common_args
+    raise ValueError(f"Unknown argument: {name}")
+ValueError: Unknown argument: show_log
+01/08/2026 13:09:25 - ERROR - log_erro - Falha ao inicializar o motor PaddleOCR | Detalhe: Unknown argument: show_log
+Traceback (most recent call last):
+  File "c:\Users\AB-ADVOGADOS\Desktop\Converter .md\PADDLEOCR 2\PDF2MD_V2\ocr\manager.py", line 13, in inicializar_se_necessario
+    self.motor = PaddleOCR(
+                 ^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\ocr.py", line 173, in __init__
+    super().__init__(**base_params)
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\base.py", line 63, in __init__
+    self._common_args = parse_common_args(
+                        ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_common_args.py", line 54, in parse_common_args
+    raise ValueError(f"Unknown argument: {name}")
+ValueError: Unknown argument: show_log
+01/08/2026 13:13:17 - ERROR - log_erro - Falha ao inicializar o motor PaddleOCR | Detalhe: Unknown argument: show_log
+Traceback (most recent call last):
+  File "c:\Users\AB-ADVOGADOS\Desktop\Converter .md\PADDLEOCR 2\PDF2MD_V2\ocr\manager.py", line 13, in inicializar_se_necessario
+    self.motor = PaddleOCR(
+                 ^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\ocr.py", line 173, in __init__
+    super().__init__(**base_params)
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\base.py", line 63, in __init__
+    self._common_args = parse_common_args(
+                        ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_common_args.py", line 54, in parse_common_args
+    raise ValueError(f"Unknown argument: {name}")
+ValueError: Unknown argument: show_log
+01/08/2026 13:17:35 - ERROR - log_erro - Falha ao inicializar o motor PaddleOCR | Detalhe: Unknown argument: show_log
+Traceback (most recent call last):
+  File "c:\Users\AB-ADVOGADOS\Desktop\Converter .md\PADDLEOCR 2\PDF2MD_V2\ocr\manager.py", line 13, in inicializar_se_necessario
+    self.motor = PaddleOCR(
+                 ^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\ocr.py", line 173, in __init__
+    super().__init__(**base_params)
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\base.py", line 63, in __init__
+    self._common_args = parse_common_args(
+                        ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_common_args.py", line 54, in parse_common_args
+    raise ValueError(f"Unknown argument: {name}")
+ValueError: Unknown argument: show_log
+01/08/2026 13:22:00 - ERROR - log_erro - Falha ao inicializar o motor PaddleOCR | Detalhe: Unknown argument: show_log
+Traceback (most recent call last):
+  File "c:\Users\AB-ADVOGADOS\Desktop\Converter .md\PADDLEOCR 2\PDF2MD_V2\ocr\manager.py", line 13, in inicializar_se_necessario
+    self.motor = PaddleOCR(
+                 ^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\ocr.py", line 173, in __init__
+    super().__init__(**base_params)
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\base.py", line 63, in __init__
+    self._common_args = parse_common_args(
+                        ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_common_args.py", line 54, in parse_common_args
+    raise ValueError(f"Unknown argument: {name}")
+ValueError: Unknown argument: show_log
+01/08/2026 13:24:34 - ERROR - log_erro - Falha ao inicializar o motor PaddleOCR | Detalhe: Unknown argument: show_log
+Traceback (most recent call last):
+  File "c:\Users\AB-ADVOGADOS\Desktop\Converter .md\PADDLEOCR 2\PDF2MD_V2\ocr\manager.py", line 13, in inicializar_se_necessario
+    self.motor = PaddleOCR(
+                 ^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\ocr.py", line 173, in __init__
+    super().__init__(**base_params)
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\base.py", line 63, in __init__
+    self._common_args = parse_common_args(
+                        ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_common_args.py", line 54, in parse_common_args
+    raise ValueError(f"Unknown argument: {name}")
+ValueError: Unknown argument: show_log

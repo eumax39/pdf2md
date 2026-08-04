@@ -1,0 +1,73 @@
+03/08/2026 13:38:35 - ERROR - log_erro - Falha ao inicializar o motor PaddleOCR | Detalhe: Unknown argument: show_log
+Traceback (most recent call last):
+  File "c:\Users\AB-ADVOGADOS\Desktop\Converter .md\PADDLEOCR 2\PDF2MD_V2\ocr\manager.py", line 13, in inicializar_se_necessario
+    self.motor = PaddleOCR(
+                 ^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\ocr.py", line 173, in __init__
+    super().__init__(**base_params)
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\base.py", line 63, in __init__
+    self._common_args = parse_common_args(
+                        ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_common_args.py", line 54, in parse_common_args
+    raise ValueError(f"Unknown argument: {name}")
+ValueError: Unknown argument: show_log
+03/08/2026 13:57:12 - ERROR - log_erro - Falha ao inicializar o motor PaddleOCR | Detalhe: Unknown argument: show_log
+Traceback (most recent call last):
+  File "c:\Users\AB-ADVOGADOS\Desktop\Converter .md\PADDLEOCR 2\PDF2MD_V2\ocr\manager.py", line 13, in inicializar_se_necessario
+    self.motor = PaddleOCR(
+                 ^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\ocr.py", line 173, in __init__
+    super().__init__(**base_params)
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\base.py", line 63, in __init__
+    self._common_args = parse_common_args(
+                        ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_common_args.py", line 54, in parse_common_args
+    raise ValueError(f"Unknown argument: {name}")
+ValueError: Unknown argument: show_log
+03/08/2026 14:39:33 - ERROR - log_erro - Falha ao inicializar o motor PaddleOCR | Detalhe: Unknown argument: show_log
+Traceback (most recent call last):
+  File "c:\Users\AB-ADVOGADOS\Desktop\Converter .md\PADDLEOCR 2\PDF2MD_V2\ocr\manager.py", line 13, in inicializar_se_necessario
+    self.motor = PaddleOCR(
+                 ^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\ocr.py", line 173, in __init__
+    super().__init__(**base_params)
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\base.py", line 63, in __init__
+    self._common_args = parse_common_args(
+                        ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_common_args.py", line 54, in parse_common_args
+    raise ValueError(f"Unknown argument: {name}")
+ValueError: Unknown argument: show_log
+03/08/2026 15:36:16 - ERROR - log_erro - Falha ao inicializar o motor PaddleOCR | Detalhe: Unknown argument: show_log
+Traceback (most recent call last):
+  File "c:\Users\AB-ADVOGADOS\Desktop\Converter .md\PADDLEOCR 2\PDF2MD_V2\ocr\manager.py", line 13, in inicializar_se_necessario
+    self.motor = PaddleOCR(
+                 ^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\ocr.py", line 173, in __init__
+    super().__init__(**base_params)
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\base.py", line 63, in __init__
+    self._common_args = parse_common_args(
+                        ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_common_args.py", line 54, in parse_common_args
+    raise ValueError(f"Unknown argument: {name}")
+ValueError: Unknown argument: show_log
+03/08/2026 15:49:05 - ERROR - log_erro - Erro interno durante a execução do PaddleOCR | Detalhe: PaddleOCR.predict() got an unexpected keyword argument 'cls'
+Traceback (most recent call last):
+  File "c:\Users\AB-ADVOGADOS\Desktop\Converter .md\PADDLEOCR 2\PDF2MD_V2\ocr\manager.py", line 37, in ler_imagem
+    resultados = self.motor.ocr(img_array, cls=False)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\typing_extensions.py", line 3140, in wrapper
+    return arg(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\Lib\site-packages\paddleocr\_pipelines\ocr.py", line 241, in ocr
+    return self.predict(img, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: PaddleOCR.predict() got an unexpected keyword argument 'cls'
+03/08/2026 15:52:07 - ERROR - log_erro - Erro interno durante a execução do PaddleOCR | Detalhe: string index out of range
+Traceback (most recent call last):
+  File "c:\Users\AB-ADVOGADOS\Desktop\Converter .md\PADDLEOCR 2\PDF2MD_V2\ocr\manager.py", line 42, in ler_imagem
+    linhas_ordenadas = sorted(resultados[0], key=lambda x: (x[0][0][1], x[0][0][0]))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\AB-ADVOGADOS\Desktop\Converter .md\PADDLEOCR 2\PDF2MD_V2\ocr\manager.py", line 42, in <lambda>
+    linhas_ordenadas = sorted(resultados[0], key=lambda x: (x[0][0][1], x[0][0][0]))
+                                                            ~~~~~~~^^^
+IndexError: string index out of range
