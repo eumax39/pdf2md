@@ -1,6 +1,7 @@
 import shutil
 import subprocess
 import sys
+from multiprocessing import freeze_support
 
 def checar_dependencias():
     """Verifica dependências e tenta instalá-las de forma compatível com ambientes uv."""
@@ -451,5 +452,8 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
             self.tela_projetos.carregar_lista()
 
 if __name__ == "__main__":
+    # Necessário no Windows (especialmente em executáveis PyInstaller) para
+    # que subprocessos de multiprocessing não executem a GUI novamente.
+    freeze_support()
     app = App()
     app.mainloop()
