@@ -1,0 +1,54 @@
+PDF2MD_V2 - Licenca Proprietaria Restritiva
+Version 1.0 - 2026-08-05
+
+Copyright (c) 2026 AB ADVOGADOS.
+Todos os direitos reservados.
+
+IMPORTANTE:
+Este software NAO e open source. O uso, copia, modificacao e distribuicao
+sao permitidos apenas nos termos desta licenca.
+
+1. USO NAO COMERCIAL
+E permitido usar este software somente para fins internos, pessoais,
+academicos ou institucionais sem finalidade comercial direta ou indireta.
+E proibido vender, revender, licenciar comercialmente, alugar, terceirizar
+ou explorar comercialmente este software, no todo ou em parte.
+
+2. MODIFICACOES APENAS PARA MELHORIAS
+E permitido modificar o software apenas para manutencao, correcao de bugs,
+seguranca, desempenho, compatibilidade e melhorias tecnicas do proprio
+projeto PDF2MD_V2.
+Nao e permitido usar o codigo para criar produto concorrente, derivacao
+comercial, ou projeto com finalidade distinta da melhoria deste software.
+
+3. PROJETO FECHADO (CODIGO PROPRIETARIO)
+O codigo-fonte permanece fechado e proprietario.
+Nao e concedido direito de relicenciamento, sublicenciamento ou publicacao
+aberta do codigo-fonte.
+A redistribuicao de versoes modificadas, em codigo-fonte ou binario,
+exige autorizacao previa e expressa do titular dos direitos.
+
+4. RESTRICOES ADICIONAIS
+Sem autorizacao expressa do titular, e proibido:
+- remover avisos de copyright e titularidade;
+- alegar autoria total ou parcial do software original;
+- transferir esta licenca para terceiros com termos diferentes.
+
+5. RESCISAO
+O descumprimento de qualquer termo encerra automaticamente esta licenca,
+sem aviso previo, e obriga a interrupcao imediata de uso e distribuicao.
+
+6. ISENCAO DE GARANTIAS E LIMITACAO DE RESPONSABILIDADE
+O software e fornecido "NO ESTADO EM QUE SE ENCONTRA", sem garantias de
+qualquer tipo, expressas ou implicitas.
+Em nenhuma hipotese o titular sera responsavel por danos diretos,
+indiretos, incidentais, especiais ou consequenciais decorrentes do uso
+ou da impossibilidade de uso do software.
+
+7. COMPONENTES DE TERCEIROS
+Bibliotecas e dependencias de terceiros mantem suas proprias licencas.
+Esta licenca se aplica apenas ao codigo autoral deste projeto.
+
+8. LEI APLICAVEL
+Esta licenca sera interpretada conforme a legislacao brasileira, com foro
+competente a ser definido pelo titular dos direitos quando necessario.

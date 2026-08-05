@@ -1,0 +1,14 @@
+{
+    "tema": "Dark",
+    "pasta_padrao": "",
+    "usar_ocr_hibrido": true,
+    "idioma_ocr": "pt",
+    "extrair_imagens": false,
+    "dpi_leitura": 100,
+    "threads_cpu": 2,
+    "ocr_timeout_segundos": 40,
+    "ocr_timeout_inicial_segundos": 120,
+    "ocr_dpi_timeout_retry": 110,
+    "imagem_ref_min_area_ratio": 0.04,
+    "modo_conversao": "Texto Nativo + Referência de Imagem (Sem OCR)"
+}

@@ -1,0 +1,47 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Test and tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Editor settings
+.vscode/
+.idea/
+
+# Logs and runtime artifacts
+logs/*.log
+*.tmp
+*.bak
+
+# OS files
+Thumbs.db
+Desktop.ini
+
+# Generated local outputs
+*_referencias_imagens.pdf
+*_referencias/
+
+# Packaging artifacts
+build/
+dist/
+
+# Local app data
+historico.db
+historico_projetos.json
+
+# Local debug outputs
+pyinstaller_build.log
+ocr_smoke_result.txt
+ocr_smoke_result2.txt
