@@ -1,0 +1,39 @@
+# ============================================================
+# PDF2MD_V2 - Requisitos do Projeto
+# ============================================================
+# Ambiente: Python 3.11+ (Windows)
+# Última atualização: 05/08/2026
+# ============================================================
+
+# ---------- Interface Gráfica ----------
+customtkinter==6.0.0
+tkinterdnd2==0.6.2
+
+# ---------- Manipulação de PDF ----------
+pymupdf==1.28.0
+pymupdf4llm==1.28.0
+pymupdf-layout==1.28.0
+pillow==12.3.0
+
+# ---------- Computação Numérica e Processamento de Imagens ----------
+numpy==2.3.5
+opencv-contrib-python==4.10.0.84
+onnxruntime==1.28.0
+
+# ---------- OCR e IA (PaddleOCR / PaddleX) ----------
+paddleocr==3.7.0
+paddlepaddle==3.3.1
+paddlex[ocr]==3.7.2
+
+# ---------- Dependências extras do PaddleX (identificadas durante build) ----------
+shapely==2.0.6
+pyclipper==1.3.0.post5
+pypdfium2==4.30.0
+python-bidi==0.4.2
+scikit-image==0.24.0
+imgaug==0.4.0
+albumentations==1.4.0
+lmdb==1.4.1
+
+# ---------- Empacotamento (PyInstaller) ----------
+pyinstaller==6.21.0

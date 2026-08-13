@@ -20,6 +20,8 @@ MODO_HIBRIDO_ANTIGO = "Híbrido (Automático)"
 MODO_FORCAR_OCR = "Forçar OCR (Ignora Texto Nativo)"
 MODO_FORCAR_OCR_ANTIGO = "Forçar OCR em Todas as Páginas"
 MODO_REFERENCIA_IMAGEM = "Texto Nativo + Referência de Imagem (Sem OCR)"
+FORMATO_MD = "Markdown (.md)"
+FORMATO_PDF_OCR = "PDF com OCR (.pdf)"
 
 
 def normalizar_modo_conversao(valor):
@@ -33,14 +35,69 @@ def normalizar_modo_conversao(valor):
     return aliases.get(valor, MODO_HIBRIDO)
 
 class MotorConversao:
-    def __init__(self, arquivos, pasta_destino, usar_ocr, cb_progresso, cb_concluido, cb_erro):
+    def __init__(self, arquivos, pasta_destino, usar_ocr, cb_progresso, cb_concluido, cb_erro, formato_saida=FORMATO_MD):
         self.arquivos = arquivos
         self.pasta_destino = pasta_destino
         self.usar_ocr = usar_ocr
         self.cb_progresso = cb_progresso
         self.cb_concluido = cb_concluido
         self.cb_erro = cb_erro
+        self.formato_saida = formato_saida
         self.cancelar = False
+        self._qtd_alertas_ocr = 0
+        self._paginas_alerta_ocr = []
+
+    def _gerar_pdf_pesquisavel_ocr(self, paginas_dados, caminho_saida_pdf):
+        """Gera PDF pesquisável inserindo imagem da página + camada invisível de texto OCR."""
+        doc = None
+        try:
+            doc = fitz.open()
+            for dados in paginas_dados:
+                img_array = dados.get("img_array")
+                texto = (dados.get("texto") or "").strip()
+                if img_array is None:
+                    continue
+
+                img = Image.fromarray(img_array)
+                if img.mode != "RGB":
+                    img = img.convert("RGB")
+
+                img_bytes = io.BytesIO()
+                img.save(img_bytes, format="PNG")
+                img_bytes.seek(0)
+
+                largura, altura = img.size
+                page = doc.new_page(width=float(largura), height=float(altura))
+                rect = fitz.Rect(0, 0, float(largura), float(altura))
+                page.insert_image(rect, stream=img_bytes.getvalue())
+
+                if texto:
+                    try:
+                        page.insert_textbox(
+                            rect,
+                            texto,
+                            fontsize=8,
+                            fontname="helv",
+                            render_mode=3,
+                        )
+                    except Exception:
+                        page.insert_text(
+                            (6, 10),
+                            texto,
+                            fontsize=8,
+                            fontname="helv",
+                            render_mode=3,
+                        )
+
+            pathlib.Path(caminho_saida_pdf).parent.mkdir(parents=True, exist_ok=True)
+            doc.save(str(caminho_saida_pdf))
+            return True
+        except Exception as e:
+            log_erro(f"Falha ao gerar PDF pesquisável OCR em '{caminho_saida_pdf}'", e)
+            return False
+        finally:
+            if doc is not None:
+                doc.close()
 
     def iniciar(self):
         threading.Thread(target=self._processar_fila, daemon=True).start()
@@ -191,6 +248,7 @@ class MotorConversao:
             total_arquivos = len(self.arquivos)
             modo_atual = normalizar_modo_conversao(config_app.get("modo_conversao"))
             modo_referencia_imagem = (modo_atual == MODO_REFERENCIA_IMAGEM)
+            saidas_geradas = []
 
             for idx_arq, caminho_pdf in enumerate(self.arquivos):
                 if self.cancelar:
@@ -199,11 +257,19 @@ class MotorConversao:
                 nome_original = pathlib.Path(caminho_pdf).stem
                 pasta_base = pathlib.Path(self.pasta_destino) if self.pasta_destino else pathlib.Path(caminho_pdf).parent
                 pasta_base.mkdir(parents=True, exist_ok=True)
-                caminho_saida = str(pasta_base / (nome_original + ".md"))
+                caminho_saida_md = str(pasta_base / (nome_original + ".md"))
+                caminho_saida_pdf_ocr = str(pasta_base / f"{nome_original}_ocr.pdf")
                 caminho_pdf_referencias = pasta_base / f"{nome_original}_referencias_imagens.pdf"
 
+                gerar_pdf_ocr = bool(
+                    self.formato_saida == FORMATO_PDF_OCR
+                    and modo_atual == MODO_FORCAR_OCR
+                    and self.usar_ocr
+                )
+                paginas_pdf_ocr = [] if gerar_pdf_ocr else None
+
                 leitor = PDFReader(caminho_pdf)
-                escritor = MarkdownWriter(caminho_saida)
+                escritor = None if gerar_pdf_ocr else MarkdownWriter(caminho_saida_md)
                 doc_referencias = fitz.open() if modo_referencia_imagem else None
 
                 if self.usar_ocr and not modo_referencia_imagem:
@@ -243,6 +309,7 @@ class MotorConversao:
 
                     texto_extraido = ""
                     status_msg = status_base
+                    texto_ocr_limpo = ""
 
                     try:
                         if modo_referencia_imagem:
@@ -324,6 +391,9 @@ class MotorConversao:
                                     else:
                                         texto_extraido = f"\n> 🤖 **[IA - OCR Pág. {i+1}]**\n\n{texto_ocr_limpo}\n"
                                 elif texto_ocr_limpo.startswith("> ["):
+                                    if "OCR indisponível" in texto_ocr_limpo:
+                                        self._qtd_alertas_ocr += 1
+                                        self._paginas_alerta_ocr.append((pathlib.Path(caminho_pdf).name, i + 1))
                                     if modo_atual == MODO_HIBRIDO and tem_texto_util:
                                         texto_extraido = f"{texto_nativo_limpo}\n\n{texto_ocr_limpo}\n"
                                     else:
@@ -347,9 +417,23 @@ class MotorConversao:
 
                     except Exception as e:
                         log_erro(f"Falha ao processar a página {i+1} do arquivo {caminho_pdf}", e)
+                        self._qtd_alertas_ocr += 1
+                        self._paginas_alerta_ocr.append((pathlib.Path(caminho_pdf).name, i + 1))
                         texto_extraido = f"\n> [Erro ao processar a página {i+1}: {str(e)}]\n"
 
-                    escritor.escrever_pagina(texto_extraido)
+                    if gerar_pdf_ocr:
+                        img_para_pdf = img_bgr
+                        if img_para_pdf is None:
+                            img_para_pdf = leitor.extrair_imagem_da_pagina(i)
+                        paginas_pdf_ocr.append(
+                            {
+                                "img_array": img_para_pdf,
+                                "texto": texto_ocr_limpo,
+                            }
+                        )
+                    elif escritor is not None:
+                        escritor.escrever_pagina(texto_extraido)
+
                     if texto_extraido.strip():
                         self.cb_progresso(status_msg, porcentagem, texto_extraido)
 
@@ -365,12 +449,27 @@ class MotorConversao:
                 leitor.fechar()
 
                 if not self.cancelar:
-                    historico_app.adicionar_projeto(pathlib.Path(caminho_pdf).name, caminho_saida)
+                    if gerar_pdf_ocr:
+                        ok_pdf = self._gerar_pdf_pesquisavel_ocr(paginas_pdf_ocr, caminho_saida_pdf_ocr)
+                        if ok_pdf:
+                            historico_app.adicionar_projeto(pathlib.Path(caminho_pdf).name, caminho_saida_pdf_ocr)
+                            saidas_geradas.append(caminho_saida_pdf_ocr)
+                        else:
+                            self._qtd_alertas_ocr += 1
+                    else:
+                        historico_app.adicionar_projeto(pathlib.Path(caminho_pdf).name, caminho_saida_md)
+                        saidas_geradas.append(caminho_saida_md)
 
             if self.cancelar:
                 self.cb_erro("⚠️ Conversão Cancelada pelo usuário.", cancelado=True)
             else:
-                self.cb_concluido()
+                resumo = {
+                    "qtd_alertas_ocr": int(self._qtd_alertas_ocr),
+                    "paginas_alerta_ocr": list(self._paginas_alerta_ocr),
+                    "usou_ocr": bool(self.usar_ocr),
+                    "saidas_geradas": saidas_geradas,
+                }
+                self.cb_concluido(resumo)
 
         except Exception as e:
             log_erro("Falha crítica no motor de conversão", e)

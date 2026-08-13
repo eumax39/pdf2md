@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 import pathlib
 import re
 import time
@@ -9,7 +10,6 @@ from concurrent.futures import ProcessPoolExecutor, TimeoutError as FutureTimeou
 from multiprocessing import get_context
 
 import numpy as np
-from paddleocr import PaddleOCR
 from PIL import Image, ImageFilter, ImageOps
 
 from core.configuracao import config_app
@@ -19,10 +19,58 @@ from core.utils import get_app_root, get_resource_path, log_erro
 os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
 
 
+def _configurar_path_dlls_paddle():
+    """Configura PATH para DLLs do Paddle em runtime congelado (PyInstaller)."""
+    if not getattr(sys, "frozen", False):
+        return
+
+    base = pathlib.Path(getattr(sys, "_MEIPASS", pathlib.Path.cwd()))
+    candidatos = [
+        base / "paddle" / "libs",
+        base / "_internal" / "paddle" / "libs",
+    ]
+
+    for dll_folder in candidatos:
+        if dll_folder.exists():
+            os.environ["PATH"] = str(dll_folder) + os.pathsep + os.environ.get("PATH", "")
+            print(f"[OCR] DLLs carregadas de: {dll_folder}", file=sys.stderr)
+            return
+
+    print("[OCR] Aviso: pasta de DLLs do Paddle não encontrada no runtime congelado.", file=sys.stderr)
+
+
+def _aplicar_patch_paddlex_ocr():
+    """Aplica bypass da validação de extras OCR no PaddleX em build congelada."""
+    try:
+        import paddlex.utils.deps as px_deps
+
+        _original_require_extra = getattr(px_deps, "require_extra", None)
+
+        if callable(_original_require_extra):
+            def _require_extra_bypass(extra, *, obj_name=None, alt=None):
+                # Em ambiente empacotado, OCR deve seguir com o conjunto essencial.
+                if extra in {"ocr", "ocr-core"}:
+                    return None
+
+                return _original_require_extra(extra, obj_name=obj_name, alt=alt)
+
+            px_deps.require_extra = _require_extra_bypass
+
+    except Exception as e:
+        print(f"[PATCH-OCR] Aviso: Patch falhou ({e})", file=sys.stderr)
+
+
+_configurar_path_dlls_paddle()
+_aplicar_patch_paddlex_ocr()
+from paddleocr import PaddleOCR
+
+
 def _resolver_model_home_local():
     candidatos = [
         get_resource_path("assets", "paddlex"),
+        get_resource_path("paddlex"),
         get_app_root() / "assets" / "paddlex",
+        get_app_root() / "paddlex",
         get_app_root() / ".paddlex",
         pathlib.Path.home() / ".paddlex",
     ]
@@ -31,6 +79,27 @@ def _resolver_model_home_local():
         if (base / "official_models").exists():
             return base
     return None
+
+
+def _diagnostico_modelos_ocr():
+    candidatos = [
+        get_resource_path("assets", "paddlex"),
+        get_resource_path("paddlex"),
+        get_app_root() / "assets" / "paddlex",
+        get_app_root() / "paddlex",
+        get_app_root() / ".paddlex",
+        pathlib.Path.home() / ".paddlex",
+    ]
+
+    linhas = []
+    for base in candidatos:
+        try:
+            ok = (base / "official_models").exists()
+            linhas.append(f"{base} -> official_models={'OK' if ok else 'NAO'}")
+        except Exception:
+            linhas.append(f"{base} -> official_models=ERRO")
+
+    return " | ".join(linhas)
 
 
 MODEL_HOME_LOCAL = _resolver_model_home_local()
@@ -252,8 +321,11 @@ class GerenciadorOCR:
                         self.motor = None
 
                 if self.motor is None:
+                    diagnostico_modelos = _diagnostico_modelos_ocr()
                     raise RuntimeError(
-                        f"Falha ao carregar modelos de OCR para idiomas: {', '.join(idiomas_tentativa)}"
+                        "Falha ao carregar modelos de OCR para idiomas: "
+                        f"{', '.join(idiomas_tentativa)}. "
+                        f"Diagnostico de modelos: {diagnostico_modelos}"
                     ) from ultimo_erro
 
                 self._falhas_consecutivas = 0

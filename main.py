@@ -59,11 +59,19 @@ import fitz
 from PIL import Image
 import re
 
-from app.telas import TelaInicio, TelaProjetos, TelaDetalhes, TelaConfigs
+from app.telas import (
+    TelaInicio,
+    TelaProjetos,
+    TelaDetalhes,
+    TelaConfigs,
+    FORMATO_MD,
+    FORMATO_PDF_OCR,
+)
 from core.conversor import MotorConversao
 from core.configuracao import config_app
 from core.historico import historico_app
 from core.utils import get_resource_path
+from ocr.manager import ocr_engine
 
 DIRETORIO_SCRIPT = get_resource_path()
 
@@ -115,6 +123,41 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
         self.criar_telas()
         self.mostrar_tela("inicio")
         self.atualizar_interface_arquivos()
+        self.after(800, self.verificar_saude_ocr_inicial)
+
+    def verificar_saude_ocr_inicial(self):
+        modo = normalizar_modo_conversao(config_app.get("modo_conversao"))
+        if modo == MODO_REFERENCIA_IMAGEM:
+            return
+
+        def _worker():
+            try:
+                ocr_engine.inicializar_se_necessario()
+                indisponivel = (ocr_engine.motor == "ERRO") or bool(getattr(ocr_engine, "_desabilitado", False))
+                detalhe = str(getattr(ocr_engine, "_ultimo_erro_init", "") or "")
+            except Exception as e:
+                indisponivel = True
+                detalhe = str(e)
+
+            def _atualizar_ui():
+                if indisponivel:
+                    self.tela_inicio.lbl_status.configure(
+                        text="⚠️ OCR indisponível neste ambiente (modo digital ainda funciona)",
+                        text_color="#ca8a04",
+                    )
+                    if detalhe:
+                        self.tela_inicio.textbox_preview.configure(state="normal")
+                        self.tela_inicio.textbox_preview.insert(
+                            "end",
+                            f"> [Diagnóstico OCR na inicialização] {detalhe}\n\n",
+                        )
+                        self.tela_inicio.textbox_preview.see("end")
+                        self.tela_inicio.textbox_preview.configure(state="disabled")
+
+            self.after(0, _atualizar_ui)
+
+        import threading
+        threading.Thread(target=_worker, daemon=True).start()
 
     def criar_barra_lateral(self):
         self.sidebar = ctk.CTkFrame(self, width=200, corner_radius=0)
@@ -333,9 +376,48 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
         modo_selecionado = self.tela_inicio.opt_modo.get()
         modo_selecionado = normalizar_modo_conversao(modo_selecionado)
         config_app.set("modo_conversao", modo_selecionado)
+        formato_saida = self.tela_inicio.opt_formato_saida.get()
+
+        # A opcao de formato de saida so se aplica ao modo Forcar OCR.
+        if modo_selecionado != MODO_FORCAR_OCR:
+            formato_saida = FORMATO_MD
 
         # OCR é desativado no modo de referência de imagem para acelerar processos grandes.
         usar_ocr = modo_selecionado != MODO_REFERENCIA_IMAGEM
+
+        if usar_ocr:
+            ocr_engine.inicializar_se_necessario()
+            ocr_indisponivel = (ocr_engine.motor == "ERRO") or bool(getattr(ocr_engine, "_desabilitado", False))
+            if ocr_indisponivel:
+                if formato_saida == FORMATO_PDF_OCR:
+                    self.tela_inicio.btn_converter.configure(state="normal")
+                    self.tela_inicio.btn_cancelar.grid_remove()
+                    self.tela_inicio.btn_cancelar.configure(state="normal", text="❌ Cancelar")
+                    self.tela_inicio.lbl_status.configure(
+                        text="⚠️ Conversão não iniciada: OCR indisponível para PDF OCR",
+                        text_color="#ca8a04"
+                    )
+                    messagebox.showerror(
+                        "OCR indisponível",
+                        "Não é possível gerar PDF com OCR porque o motor OCR está indisponível neste ambiente."
+                    )
+                    return
+
+                resposta = messagebox.askyesno(
+                    "OCR indisponível",
+                    "O OCR não está disponível neste ambiente.\n\n"
+                    "Deseja continuar apenas com extração digital (sem OCR)?"
+                )
+                if not resposta:
+                    self.tela_inicio.btn_converter.configure(state="normal")
+                    self.tela_inicio.btn_cancelar.grid_remove()
+                    self.tela_inicio.btn_cancelar.configure(state="normal", text="❌ Cancelar")
+                    self.tela_inicio.lbl_status.configure(
+                        text="⚠️ Conversão não iniciada: OCR indisponível",
+                        text_color="#ca8a04"
+                    )
+                    return
+                usar_ocr = False
 
         self.motor_conversao = MotorConversao(
             arquivos=self.arquivos_selecionados,
@@ -343,7 +425,8 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
             usar_ocr=usar_ocr,
             cb_progresso=self.atualizar_progresso,
             cb_concluido=self.conversao_concluida,
-            cb_erro=self.conversao_erro
+            cb_erro=self.conversao_erro,
+            formato_saida=formato_saida,
         )
         self.motor_conversao.iniciar()
 
@@ -381,21 +464,28 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
             self.tela_inicio.textbox_preview.see("end")
             self.tela_inicio.textbox_preview.configure(state="disabled")
 
-    def conversao_concluida(self):
+    def conversao_concluida(self, resumo=None):
         self.tela_inicio.parar_scanner() 
-        
-        for arquivo in self.arquivos_selecionados:
-            nome_original = pathlib.Path(arquivo).stem
-            pasta_base = pathlib.Path(self.pasta_destino) if self.pasta_destino else pathlib.Path(arquivo).parent
-            caminho_saida = str(pasta_base / (nome_original + ".md"))
-            historico_app.adicionar_projeto(pathlib.Path(arquivo).name, caminho_saida)
 
-        self.tela_inicio.progressbar.set(1) 
-        self.tela_inicio.lbl_status.configure(text="✅ Concluído com Sucesso!", text_color="#16a34a")
+        self.tela_inicio.progressbar.set(1)
         self.tela_inicio.btn_converter.configure(state="normal")
         self.tela_inicio.btn_cancelar.grid_remove() 
         self.tela_inicio.btn_cancelar.configure(state="normal", text="❌ Cancelar") 
-        messagebox.showinfo("Sucesso", "A conversão foi finalizada perfeitamente!")
+
+        resumo = resumo or {}
+        qtd_alertas_ocr = int(resumo.get("qtd_alertas_ocr", 0) or 0)
+        usou_ocr = bool(resumo.get("usou_ocr", False))
+
+        if usou_ocr and qtd_alertas_ocr > 0:
+            self.tela_inicio.lbl_status.configure(text="⚠️ Concluído com alertas de OCR", text_color="#ca8a04")
+            messagebox.showwarning(
+                "Concluído com Alertas",
+                "A conversão terminou, mas houve falhas de OCR em uma ou mais páginas.\n"
+                "Verifique o markdown e o arquivo de log para detalhes."
+            )
+        else:
+            self.tela_inicio.lbl_status.configure(text="✅ Concluído com Sucesso!", text_color="#16a34a")
+            messagebox.showinfo("Sucesso", "A conversão foi finalizada perfeitamente!")
 
     def conversao_erro(self, erro, cancelado=False):
         self.tela_inicio.parar_scanner()

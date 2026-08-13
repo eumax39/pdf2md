@@ -8,6 +8,8 @@ MODO_HIBRIDO_ANTIGO = "Híbrido (Automático)"
 MODO_FORCAR_OCR = "Forçar OCR (Ignora Texto Nativo)"
 MODO_FORCAR_OCR_ANTIGO = "Forçar OCR em Todas as Páginas"
 MODO_REFERENCIA_IMAGEM = "Texto Nativo + Referência de Imagem (Sem OCR)"
+FORMATO_MD = "Markdown (.md)"
+FORMATO_PDF_OCR = "PDF com OCR (.pdf)"
 
 
 def normalizar_modo_conversao(valor):
@@ -100,9 +102,20 @@ class TelaInicio(ctk.CTkFrame):
                 MODO_FORCAR_OCR,
                 MODO_REFERENCIA_IMAGEM,
             ],
+            command=self._ao_mudar_modo,
         )
         self.opt_modo.grid(row=1, column=1, padx=20, pady=5, sticky="e")
         self.opt_modo.set(normalizar_modo_conversao(config_app.get("modo_conversao")))
+
+        self.lbl_formato = ctk.CTkLabel(self.frame_opcoes, text="Formato de Saída:")
+        self.lbl_formato.grid(row=2, column=0, padx=20, pady=5, sticky="w")
+        self.opt_formato_saida = ctk.CTkOptionMenu(
+            self.frame_opcoes,
+            values=[FORMATO_MD, FORMATO_PDF_OCR],
+        )
+        self.opt_formato_saida.grid(row=2, column=1, padx=20, pady=5, sticky="e")
+        self.opt_formato_saida.set(FORMATO_MD)
+        self._atualizar_opcao_formato_saida(normalizar_modo_conversao(config_app.get("modo_conversao")))
 
         self.btn_destino = ctk.CTkButton(self.frame_opcoes, text="Escolher Pasta Destino", fg_color="#444444", hover_color="#555555", command=comando_pasta)
         self.btn_destino.grid(row=3, column=0, columnspan=2, padx=20, pady=(10, 0), sticky="ew")
@@ -156,6 +169,20 @@ class TelaInicio(ctk.CTkFrame):
         self.linha_scanner.place(relx=0.02, rely=0.02, relwidth=0.96)
         self.linha_scanner.lift()
         self.animar_scanner()
+
+    def _ao_mudar_modo(self, valor):
+        self._atualizar_opcao_formato_saida(normalizar_modo_conversao(valor))
+
+    def _atualizar_opcao_formato_saida(self, modo_atual):
+        habilitar_formato = (modo_atual == MODO_FORCAR_OCR)
+        if habilitar_formato:
+            self.lbl_formato.grid()
+            self.opt_formato_saida.grid()
+        else:
+            # Mantem comportamento historico dos demais modos: sempre gera markdown.
+            self.opt_formato_saida.set(FORMATO_MD)
+            self.lbl_formato.grid_remove()
+            self.opt_formato_saida.grid_remove()
 
     def atualizar_imagem_scanner(self, imagem_grande, texto_nome):
         """Muda a folha central quando o OCR avança para o próximo PDF"""
