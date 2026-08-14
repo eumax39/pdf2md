@@ -20,7 +20,9 @@ class Configuracao:
             "ocr_timeout_segundos": 40,
             "ocr_timeout_inicial_segundos": 120,
             "ocr_dpi_timeout_retry": 110,
-            "imagem_ref_min_area_ratio": 0.04
+            "imagem_ref_min_area_ratio": 0.04,
+            "modo_compatibilidade": False,
+            "gerar_manifesto_conversao": True
         }
         self.carregar()
 

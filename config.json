@@ -10,5 +10,7 @@
     "ocr_timeout_inicial_segundos": 120,
     "ocr_dpi_timeout_retry": 110,
     "imagem_ref_min_area_ratio": 0.04,
-    "modo_conversao": "Forçar OCR (Ignora Texto Nativo)"
+    "modo_compatibilidade": false,
+    "gerar_manifesto_conversao": true,
+    "modo_conversao": "Texto Nativo + Referência de Imagem (Sem OCR)"
 }

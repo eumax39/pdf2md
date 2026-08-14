@@ -4,6 +4,8 @@ import threading
 import queue
 import time
 import io
+import json
+from datetime import datetime
 
 import fitz
 from PIL import Image
@@ -11,7 +13,7 @@ from PIL import Image
 from core.pdf_reader import PDFReader
 from core.markdown_writer import MarkdownWriter
 from core.historico import historico_app
-from core.utils import log_erro
+from core.utils import log_erro, log_info, log_aviso
 from ocr.manager import ocr_engine
 from core.configuracao import config_app
 
@@ -35,7 +37,7 @@ def normalizar_modo_conversao(valor):
     return aliases.get(valor, MODO_HIBRIDO)
 
 class MotorConversao:
-    def __init__(self, arquivos, pasta_destino, usar_ocr, cb_progresso, cb_concluido, cb_erro, formato_saida=FORMATO_MD):
+    def __init__(self, arquivos, pasta_destino, usar_ocr, cb_progresso, cb_concluido, cb_erro, formato_saida=FORMATO_MD, cb_status_arquivo=None):
         self.arquivos = arquivos
         self.pasta_destino = pasta_destino
         self.usar_ocr = usar_ocr
@@ -43,9 +45,73 @@ class MotorConversao:
         self.cb_concluido = cb_concluido
         self.cb_erro = cb_erro
         self.formato_saida = formato_saida
+        self.cb_status_arquivo = cb_status_arquivo
+        self._inicio_ts = time.monotonic()
+        self._stats = {
+            "arquivos_total": len(arquivos), "arquivos_concluidos": 0, "arquivos_com_erro": 0,
+            "paginas_total": 0, "paginas_processadas": 0, "paginas_texto_nativo": 0,
+            "paginas_ocr": 0, "paginas_referencia": 0, "paginas_com_alerta": 0,
+        }
+        self._stats_arquivos = []
         self.cancelar = False
         self._qtd_alertas_ocr = 0
         self._paginas_alerta_ocr = []
+
+
+    def _status_arquivo(self, indice, status, detalhe=""):
+        if self.cb_status_arquivo:
+            try:
+                self.cb_status_arquivo(indice, status, detalhe)
+            except Exception:
+                pass
+
+    def _registrar_manifesto(self, pasta_base, resumo):
+        if not bool(config_app.get("gerar_manifesto_conversao")):
+            return None
+        try:
+            caminho = pathlib.Path(pasta_base) / "conversao_pdf2md.json"
+            payload = {
+                "gerado_em": datetime.now().isoformat(timespec="seconds"),
+                "modo": normalizar_modo_conversao(config_app.get("modo_conversao")),
+                "formato_saida": self.formato_saida,
+                "cancelado": bool(self.cancelar),
+                "resumo": resumo,
+                "arquivos": self._stats_arquivos,
+            }
+            caminho.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            return str(caminho)
+        except Exception as e:
+            log_erro("Falha ao salvar manifesto de conversão", e)
+            return None
+
+    def _ocr_com_retry(self, leitor, pagina, img_bgr, status_base, porcentagem):
+        """OCR com uma retentativa conservadora para falha/timeout/resultado vazio."""
+        texto = ""
+        try:
+            if img_bgr is not None:
+                texto = ocr_engine.ler_imagem(img_bgr) or ""
+        except Exception as e:
+            log_aviso(f"OCR primário falhou na página {pagina + 1}: {type(e).__name__}")
+
+        texto_limpo = texto.strip()
+        deve_retry = (not texto_limpo) or ("excedeu o tempo limite" in texto_limpo.lower())
+        if deve_retry and not self.cancelar:
+            dpi_retry = int(config_app.get("ocr_dpi_timeout_retry") or 110)
+            if bool(config_app.get("modo_compatibilidade")):
+                dpi_retry = min(dpi_retry, 96)
+            try:
+                self.cb_progresso(
+                    f"{status_base} (Retentativa OCR em {dpi_retry} DPI...)", porcentagem,
+                    "> 🤖 Retentativa automática de OCR em modo leve...\n"
+                )
+                img_retry = leitor.extrair_imagem_da_pagina(pagina, dpi_override=dpi_retry)
+                if img_retry is not None:
+                    texto_retry = (ocr_engine.ler_imagem(img_retry) or "").strip()
+                    if texto_retry:
+                        texto_limpo = texto_retry
+            except Exception as e:
+                log_aviso(f"Retentativa OCR falhou na página {pagina + 1}: {type(e).__name__}")
+        return texto_limpo
 
     def _gerar_pdf_pesquisavel_ocr(self, paginas_dados, caminho_saida_pdf):
         """Gera PDF pesquisável inserindo imagem da página + camada invisível de texto OCR."""
@@ -254,6 +320,9 @@ class MotorConversao:
                 if self.cancelar:
                     break
 
+                self._status_arquivo(idx_arq, "processando")
+                arquivo_stats = {"indice": idx_arq, "paginas_esperadas": 0, "paginas_processadas": 0, "status": "processando"}
+
                 nome_original = pathlib.Path(caminho_pdf).stem
                 pasta_base = pathlib.Path(self.pasta_destino) if self.pasta_destino else pathlib.Path(caminho_pdf).parent
                 pasta_base.mkdir(parents=True, exist_ok=True)
@@ -269,13 +338,15 @@ class MotorConversao:
                 paginas_pdf_ocr = [] if gerar_pdf_ocr else None
 
                 leitor = PDFReader(caminho_pdf)
+                arquivo_stats["paginas_esperadas"] = int(leitor.total_paginas)
+                self._stats["paginas_total"] += int(leitor.total_paginas)
                 escritor = None if gerar_pdf_ocr else MarkdownWriter(caminho_saida_md)
                 doc_referencias = fitz.open() if modo_referencia_imagem else None
 
                 if self.usar_ocr and not modo_referencia_imagem:
                     ocr_engine.preaquecer_worker()
 
-                fila_paginas = queue.Queue(maxsize=2)
+                fila_paginas = queue.Queue(maxsize=1 if bool(config_app.get("modo_compatibilidade")) else 2)
                 produtor = threading.Thread(
                     target=self._preparar_paginas,
                     args=(leitor, idx_arq, total_arquivos, modo_atual, modo_referencia_imagem, fila_paginas),
@@ -367,20 +438,7 @@ class MotorConversao:
                                 ultimo_status_ts = agora
 
                             if img_bgr is not None:
-                                texto_ocr = ocr_engine.ler_imagem(img_bgr)
-                                texto_ocr_limpo = (texto_ocr or "").strip()
-
-                                if "excedeu o tempo limite" in texto_ocr_limpo.lower():
-                                    dpi_retry = int(config_app.get("ocr_dpi_timeout_retry") or 110)
-                                    status_retry = f"{status_base} (OCR retry leve em {dpi_retry} DPI...)"
-                                    self.cb_progresso(status_retry, porcentagem, "> 🤖 Tentando OCR em modo leve para reduzir timeout...\n")
-
-                                    img_retry = leitor.extrair_imagem_da_pagina(i, dpi_override=dpi_retry)
-                                    if img_retry is not None:
-                                        texto_retry = ocr_engine.ler_imagem(img_retry)
-                                        texto_retry_limpo = (texto_retry or "").strip()
-                                        if texto_retry_limpo:
-                                            texto_ocr_limpo = texto_retry_limpo
+                                texto_ocr_limpo = self._ocr_com_retry(leitor, i, img_bgr, status_base, porcentagem)
 
                                 if texto_ocr_limpo and not texto_ocr_limpo.startswith("> ["):
                                     if modo_atual == MODO_HIBRIDO and tem_texto_util:
@@ -419,7 +477,17 @@ class MotorConversao:
                         log_erro(f"Falha ao processar a página {i+1} do arquivo {caminho_pdf}", e)
                         self._qtd_alertas_ocr += 1
                         self._paginas_alerta_ocr.append((pathlib.Path(caminho_pdf).name, i + 1))
+                        self._status_arquivo(idx_arq, "aviso", f"Falha recuperada na página {i+1}")
                         texto_extraido = f"\n> [Erro ao processar a página {i+1}: {str(e)}]\n"
+
+                    arquivo_stats["paginas_processadas"] += 1
+                    self._stats["paginas_processadas"] += 1
+                    if modo_referencia_imagem:
+                        self._stats["paginas_referencia"] += 1
+                    elif precisa_ocr:
+                        self._stats["paginas_ocr"] += 1
+                    elif tem_texto_util:
+                        self._stats["paginas_texto_nativo"] += 1
 
                     if gerar_pdf_ocr:
                         img_para_pdf = img_bgr
@@ -460,15 +528,34 @@ class MotorConversao:
                         historico_app.adicionar_projeto(pathlib.Path(caminho_pdf).name, caminho_saida_md)
                         saidas_geradas.append(caminho_saida_md)
 
+                    if arquivo_stats["paginas_processadas"] == arquivo_stats["paginas_esperadas"]:
+                        arquivo_stats["status"] = "concluido"
+                        self._stats["arquivos_concluidos"] += 1
+                        self._status_arquivo(idx_arq, "concluido")
+                    else:
+                        arquivo_stats["status"] = "aviso"
+                        self._stats["arquivos_com_erro"] += 1
+                        self._status_arquivo(idx_arq, "aviso", "Nem todas as páginas foram processadas")
+                    self._stats_arquivos.append(arquivo_stats)
+
             if self.cancelar:
                 self.cb_erro("⚠️ Conversão Cancelada pelo usuário.", cancelado=True)
             else:
+                self._stats["paginas_com_alerta"] = int(self._qtd_alertas_ocr)
                 resumo = {
                     "qtd_alertas_ocr": int(self._qtd_alertas_ocr),
                     "paginas_alerta_ocr": list(self._paginas_alerta_ocr),
                     "usou_ocr": bool(self.usar_ocr),
                     "saidas_geradas": saidas_geradas,
+                    "estatisticas": dict(self._stats),
+                    "tempo_segundos": round(time.monotonic() - self._inicio_ts, 2),
+                    "integridade_ok": self._stats["paginas_processadas"] == self._stats["paginas_total"],
                 }
+                pasta_manifesto = pathlib.Path(self.pasta_destino) if self.pasta_destino else (pathlib.Path(self.arquivos[0]).parent if self.arquivos else pathlib.Path.cwd())
+                manifesto = self._registrar_manifesto(pasta_manifesto, resumo)
+                if manifesto:
+                    resumo["manifesto"] = manifesto
+                log_info(f"Conversão concluída: {self._stats['arquivos_concluidos']}/{self._stats['arquivos_total']} arquivos; {self._stats['paginas_processadas']}/{self._stats['paginas_total']} páginas")
                 self.cb_concluido(resumo)
 
         except Exception as e:

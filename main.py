@@ -78,13 +78,15 @@ from app.telas import (
     TelaProjetos,
     TelaDetalhes,
     TelaConfigs,
+    TelaDiagnostico,
     FORMATO_MD,
     FORMATO_PDF_OCR,
 )
 from core.conversor import MotorConversao
 from core.configuracao import config_app
 from core.historico import historico_app
-from core.utils import get_resource_path
+from core.utils import get_resource_path, get_logs_dir, log_info, log_erro, log_aviso
+from core.diagnostico import texto_diagnostico, salvar_crash_report
 from ocr.manager import ocr_engine
 
 DIRETORIO_SCRIPT = get_resource_path()
@@ -134,6 +136,11 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
         self._ui_icons_main = {}
         self._atualizacao_em_andamento = False
         self._update_info_pendente = None
+        self._status_arquivos = {}
+        self._card_status_labels = {}
+        self._ultimo_diagnostico = ""
+        self._conversao_generation = 0
+        self._arquivos_lote_atual = []
         
         self.indice_arquivo_atual = -1
         self.indice_pagina_atual = -1
@@ -186,7 +193,7 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
         self.sidebar = ctk.CTkFrame(self, width=190, corner_radius=0, fg_color="#0b1118", border_width=0)
         self.sidebar.grid(row=0, column=0, sticky="nsew")
         self.sidebar.grid_columnconfigure(0, weight=1)
-        self.sidebar.grid_rowconfigure(5, weight=1)
+        self.sidebar.grid_rowconfigure(6, weight=1)
 
         try:
             caminho_logo = get_resource_path("logo.png")
@@ -213,13 +220,15 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
         self.btn_projetos.grid(row=2, column=0, padx=14, pady=4, sticky="ew")
         self.btn_configs = ctk.CTkButton(self.sidebar, text="⚙  Configurações", command=lambda: self.mostrar_tela("configs"), **btn_cfg)
         self.btn_configs.grid(row=3, column=0, padx=14, pady=4, sticky="ew")
+        self.btn_diagnostico = ctk.CTkButton(self.sidebar, text="ⓘ  Diagnóstico", command=lambda: self.mostrar_tela("diagnostico"), **btn_cfg)
+        self.btn_diagnostico.grid(row=4, column=0, padx=14, pady=4, sticky="ew")
 
         self.lbl_creditos_sidebar = ctk.CTkLabel(
             self.sidebar,
             text="Desenvolvedor:\nMaxwell Barros Veras de Araujo\n\nSuporte:\nmaxwellbvras@gmail.com",
             font=ctk.CTkFont(size=10), text_color="#667384", justify="center"
         )
-        self.lbl_creditos_sidebar.grid(row=6, column=0, padx=8, pady=(20, 22), sticky="s")
+        self.lbl_creditos_sidebar.grid(row=7, column=0, padx=8, pady=(20, 22), sticky="s")
 
     def criar_telas(self):
         self.tela_inicio = TelaInicio(
@@ -233,9 +242,16 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
         )
         self.tela_projetos = TelaProjetos(self, comando_abrir_detalhes=self.abrir_projeto)
         self.tela_detalhes = TelaDetalhes(self, comando_voltar=lambda: self.mostrar_tela("projetos"), comando_copiar=self.copiar_texto_projeto, comando_salvar=self.salvar_projeto_como)
-        self.tela_configs = TelaConfigs(self, comando_mudar_tema=self.mudar_tema_app, comando_limpar_historico=self.limpar_historico)
+        self.tela_configs = TelaConfigs(
+            self, comando_mudar_tema=self.mudar_tema_app, comando_limpar_historico=self.limpar_historico,
+            comando_modo_compatibilidade=self.alterar_modo_compatibilidade
+        )
+        self.tela_diagnostico = TelaDiagnostico(
+            self, comando_atualizar=self.atualizar_diagnostico, comando_copiar=self.copiar_diagnostico,
+            comando_abrir_logs=self.abrir_pasta_logs
+        )
 
-        for frame in (self.tela_inicio, self.tela_projetos, self.tela_detalhes, self.tela_configs):
+        for frame in (self.tela_inicio, self.tela_projetos, self.tela_detalhes, self.tela_configs, self.tela_diagnostico):
             frame.grid(row=0, column=1, padx=20, pady=20, sticky="nsew")
 
     def mostrar_tela(self, nome_tela):
@@ -243,10 +259,12 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
         self.tela_projetos.grid_remove()
         self.tela_detalhes.grid_remove()
         self.tela_configs.grid_remove()
+        self.tela_diagnostico.grid_remove()
         
         self.btn_inicio.configure(fg_color="transparent")
         self.btn_projetos.configure(fg_color="transparent")
         self.btn_configs.configure(fg_color="transparent")
+        self.btn_diagnostico.configure(fg_color="transparent")
         
         if nome_tela == "inicio":
             self.tela_inicio.grid()
@@ -261,6 +279,10 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
         elif nome_tela == "configs":
             self.tela_configs.grid()
             self.btn_configs.configure(fg_color="#3b82f6")
+        elif nome_tela == "diagnostico":
+            self.tela_diagnostico.grid()
+            self.btn_diagnostico.configure(fg_color="#3b82f6")
+            self.atualizar_diagnostico()
 
     # ==========================================
     # SELEÇÃO DE ARQUIVOS E GALERIA
@@ -286,6 +308,8 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
     def adicionar_arquivos(self, novos_pdfs):
         para_adicionar = [p for p in novos_pdfs if p not in self.arquivos_selecionados]
         self.arquivos_selecionados.extend(para_adicionar)
+        for caminho in para_adicionar:
+            self._status_arquivos[str(caminho)] = "aguardando"
         self.atualizar_interface_arquivos()
         # O preview visual só é aberto quando o usuário clica em um PDF.
         # A grade permanece como tela de seleção.
@@ -294,6 +318,7 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
     def remover_arquivo(self, caminho):
         if caminho in self.arquivos_selecionados:
             self.arquivos_selecionados.remove(caminho)
+            self._status_arquivos.pop(str(caminho), None)
             self.atualizar_interface_arquivos()
             # O preview não é aberto automaticamente.
             self.tela_inicio.limpar_preview()
@@ -402,6 +427,7 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
         galeria = self.tela_inicio.frame_galeria
         for widget in galeria.winfo_children():
             widget.destroy()
+        self._card_status_labels.clear()
         self.raw_thumbnails.clear()
         qtd = len(self.arquivos_selecionados)
 
@@ -529,6 +555,19 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
                 font=ctk.CTkFont(size=9)
             )
             lbl_paginas.grid(row=1, column=1, sticky="w", pady=(0, 1))
+            status_atual = self._status_arquivos.get(str(caminho), "aguardando")
+            mapa_status = {
+                "aguardando": ("Aguardando", "#718095"),
+                "processando": ("Processando...", "#3b82f6"),
+                "concluido": ("Concluído", "#16a34a"),
+                "aviso": ("Concluído com aviso", "#ca8a04"),
+                "erro": ("Erro", "#ef4444"),
+                "cancelado": ("Cancelado", "#ca8a04"),
+            }
+            txt_status, cor_status = mapa_status.get(status_atual, (str(status_atual), "#718095"))
+            lbl_status_card = ctk.CTkLabel(info, text=txt_status, text_color=cor_status, anchor="w", font=ctk.CTkFont(size=8, weight="bold"))
+            lbl_status_card.grid(row=2, column=1, sticky="w")
+            self._card_status_labels[str(caminho)] = lbl_status_card
 
             btn_remover = ctk.CTkButton(
                 card, text="", image=trash_icon, width=26, height=26, corner_radius=8,
@@ -578,10 +617,28 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
     # LÓGICA DE CONVERSÃO E SCANNER GIGANTE
     # ==========================================
     def iniciar_conversao(self):
+        # Impede dois lotes simultâneos e garante que uma falha apenas visual
+        # nunca deixe o botão travado antes de o motor ser criado.
+        if self.motor_conversao is not None:
+            self.tela_inicio.lbl_status.configure(
+                text="Uma conversão já está em andamento.", text_color="#ca8a04"
+            )
+            return
+        if not self.arquivos_selecionados:
+            messagebox.showwarning("Conversão", "Adicione pelo menos um PDF antes de converter.")
+            return
+
+        arquivos_lote = list(self.arquivos_selecionados)
+        self._arquivos_lote_atual = arquivos_lote
+        self._conversao_generation += 1
+        geracao = self._conversao_generation
+
+        for caminho in arquivos_lote:
+            self._status_arquivos[str(caminho)] = "aguardando"
         self.tela_inicio.btn_converter.configure(state="disabled")
-        self.tela_inicio.btn_cancelar.grid() 
+        self.tela_inicio.btn_cancelar.grid()
         self.tela_inicio.progressbar.set(0)
-        
+
         self.tela_inicio.textbox_preview.configure(state="normal")
         self.tela_inicio.textbox_preview.delete("0.0", "end")
         self.tela_inicio.textbox_preview.configure(state="disabled")
@@ -589,72 +646,152 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
         self.indice_arquivo_atual = -1
         self.indice_pagina_atual = -1
 
-        # Scanner começa com a página física completa, sem CropBox reduzido.
-        if self.arquivos_selecionados:
-            img_pil = self.gerar_preview_imagem(self.arquivos_selecionados[0], num_pagina=0)
+        # O scanner é apenas feedback visual. Se ele falhar, a conversão continua.
+        try:
+            img_pil = self.gerar_preview_imagem(arquivos_lote[0], num_pagina=0)
             if img_pil:
                 img_scan = img_pil.copy()
                 img_scan.thumbnail((700, 820), Image.Resampling.LANCZOS)
                 img_grande = ctk.CTkImage(light_image=img_scan, dark_image=img_scan, size=img_scan.size)
-                nome_arq = pathlib.Path(self.arquivos_selecionados[0]).name
+                nome_arq = pathlib.Path(arquivos_lote[0]).name
                 self.tela_inicio.iniciar_scanner(img_grande, f"{nome_arq}")
+        except Exception as e:
+            log_aviso(f"Falha apenas no preview do scanner ao iniciar conversão: {type(e).__name__}: {e}")
 
-        modo_selecionado = self.tela_inicio.opt_modo.get()
-        modo_selecionado = normalizar_modo_conversao(modo_selecionado)
-        config_app.set("modo_conversao", modo_selecionado)
-        formato_saida = self.tela_inicio.opt_formato_saida.get()
+        try:
+            modo_selecionado = normalizar_modo_conversao(self.tela_inicio.opt_modo.get())
+            config_app.set("modo_conversao", modo_selecionado)
+            formato_saida = self.tela_inicio.opt_formato_saida.get()
 
-        # A opcao de formato de saida so se aplica ao modo Forcar OCR.
-        if modo_selecionado != MODO_FORCAR_OCR:
-            formato_saida = FORMATO_MD
+            if modo_selecionado != MODO_FORCAR_OCR:
+                formato_saida = FORMATO_MD
 
-        # OCR é desativado no modo de referência de imagem para acelerar processos grandes.
-        usar_ocr = modo_selecionado != MODO_REFERENCIA_IMAGEM
+            usar_ocr = modo_selecionado != MODO_REFERENCIA_IMAGEM
 
-        if usar_ocr:
-            ocr_engine.inicializar_se_necessario()
-            ocr_indisponivel = (ocr_engine.motor == "ERRO") or bool(getattr(ocr_engine, "_desabilitado", False))
-            if ocr_indisponivel:
-                if formato_saida == FORMATO_PDF_OCR:
-                    self.tela_inicio.btn_converter.configure(state="normal")
-                    self.tela_inicio.btn_cancelar.grid_remove()
-                    self.tela_inicio.btn_cancelar.configure(state="normal", text="❌ Cancelar")
-                    self.tela_inicio.lbl_status.configure(
-                        text="⚠️ Conversão não iniciada: OCR indisponível para PDF OCR",
-                        text_color="#ca8a04"
-                    )
-                    messagebox.showerror(
+            if usar_ocr:
+                ocr_engine.inicializar_se_necessario()
+                ocr_indisponivel = (ocr_engine.motor == "ERRO") or bool(getattr(ocr_engine, "_desabilitado", False))
+                if ocr_indisponivel:
+                    if formato_saida == FORMATO_PDF_OCR:
+                        self._restaurar_ui_sem_conversao()
+                        self.tela_inicio.lbl_status.configure(
+                            text="⚠️ Conversão não iniciada: OCR indisponível para PDF OCR",
+                            text_color="#ca8a04"
+                        )
+                        messagebox.showerror(
+                            "OCR indisponível",
+                            "Não é possível gerar PDF com OCR porque o motor OCR está indisponível neste ambiente."
+                        )
+                        return
+
+                    resposta = messagebox.askyesno(
                         "OCR indisponível",
-                        "Não é possível gerar PDF com OCR porque o motor OCR está indisponível neste ambiente."
+                        "O OCR não está disponível neste ambiente.\n\n"
+                        "Deseja continuar apenas com extração digital (sem OCR)?"
                     )
-                    return
+                    if not resposta:
+                        self._restaurar_ui_sem_conversao()
+                        self.tela_inicio.lbl_status.configure(
+                            text="⚠️ Conversão não iniciada: OCR indisponível",
+                            text_color="#ca8a04"
+                        )
+                        return
+                    usar_ocr = False
 
-                resposta = messagebox.askyesno(
-                    "OCR indisponível",
-                    "O OCR não está disponível neste ambiente.\n\n"
-                    "Deseja continuar apenas com extração digital (sem OCR)?"
-                )
-                if not resposta:
-                    self.tela_inicio.btn_converter.configure(state="normal")
-                    self.tela_inicio.btn_cancelar.grid_remove()
-                    self.tela_inicio.btn_cancelar.configure(state="normal", text="❌ Cancelar")
-                    self.tela_inicio.lbl_status.configure(
-                        text="⚠️ Conversão não iniciada: OCR indisponível",
-                        text_color="#ca8a04"
-                    )
-                    return
-                usar_ocr = False
+            # Callbacks do MotorConversao vêm de uma thread de trabalho. Toda
+            # atualização Tk é reenviada à thread principal com after(0, ...).
+            self.motor_conversao = MotorConversao(
+                arquivos=arquivos_lote,
+                pasta_destino=self.pasta_destino,
+                usar_ocr=usar_ocr,
+                cb_progresso=lambda status, pct, texto, g=geracao: self.after(
+                    0, lambda: self._progresso_se_atual(g, status, pct, texto)
+                ),
+                cb_concluido=lambda resumo=None, g=geracao: self.after(
+                    0, lambda: self._concluido_se_atual(g, resumo)
+                ),
+                cb_erro=lambda erro, cancelado=False, g=geracao: self.after(
+                    0, lambda: self._erro_se_atual(g, erro, cancelado)
+                ),
+                formato_saida=formato_saida,
+                cb_status_arquivo=lambda indice, status, detalhe="", g=geracao: self.after(
+                    0, lambda: self._status_lote_se_atual(g, arquivos_lote, indice, status, detalhe)
+                ),
+            )
+            self.motor_conversao.iniciar()
+        except Exception as e:
+            self.motor_conversao = None
+            self._restaurar_ui_sem_conversao()
+            log_erro("Falha ao iniciar conversão", e)
+            self.tela_inicio.lbl_status.configure(text="❌ Falha ao iniciar conversão", text_color="#ef4444")
+            messagebox.showerror("Erro", f"Não foi possível iniciar a conversão:\n\n{e}")
 
-        self.motor_conversao = MotorConversao(
-            arquivos=self.arquivos_selecionados,
-            pasta_destino=self.pasta_destino,
-            usar_ocr=usar_ocr,
-            cb_progresso=self.atualizar_progresso,
-            cb_concluido=self.conversao_concluida,
-            cb_erro=self.conversao_erro,
-            formato_saida=formato_saida,
-        )
-        self.motor_conversao.iniciar()
+    def _restaurar_ui_sem_conversao(self):
+        """Devolve a tela ao estado utilizável após falha/cancelamento de início."""
+        try:
+            self.tela_inicio.parar_scanner()
+        except Exception:
+            pass
+        self.tela_inicio.btn_converter.configure(state="normal")
+        self.tela_inicio.btn_cancelar.grid_remove()
+        self.tela_inicio.btn_cancelar.configure(state="normal", text="❌ Cancelar")
+
+    def _progresso_se_atual(self, geracao, status, pct, texto):
+        if geracao == self._conversao_generation and self.motor_conversao is not None:
+            self.atualizar_progresso(status, pct, texto)
+
+    def _concluido_se_atual(self, geracao, resumo):
+        if geracao == self._conversao_generation:
+            self.conversao_concluida(resumo)
+
+    def _erro_se_atual(self, geracao, erro, cancelado=False):
+        if geracao == self._conversao_generation:
+            self.conversao_erro(erro, cancelado=cancelado)
+
+    def _status_lote_se_atual(self, geracao, arquivos_lote, indice, status, detalhe=""):
+        if geracao != self._conversao_generation:
+            return
+        try:
+            indice = int(indice)
+            if 0 <= indice < len(arquivos_lote):
+                caminho = str(arquivos_lote[indice])
+                self._status_arquivos[caminho] = status
+                label = self._card_status_labels.get(caminho)
+                if label is not None:
+                    mapa = {
+                        "aguardando": ("Aguardando", "#718095"),
+                        "processando": ("Processando...", "#3b82f6"),
+                        "concluido": ("Concluído", "#16a34a"),
+                        "aviso": ("Concluído com aviso", "#ca8a04"),
+                        "erro": ("Erro", "#ef4444"),
+                        "cancelado": ("Cancelado", "#ca8a04"),
+                    }
+                    texto, cor = mapa.get(status, (str(status), "#718095"))
+                    label.configure(text=texto, text_color=cor)
+        except Exception:
+            pass
+
+    def atualizar_status_arquivo(self, indice, status, detalhe=""):
+        def _ui():
+            if 0 <= int(indice) < len(self.arquivos_selecionados):
+                caminho = str(self.arquivos_selecionados[int(indice)])
+                self._status_arquivos[caminho] = status
+                label = self._card_status_labels.get(caminho)
+                if label is not None:
+                    mapa = {
+                        "aguardando": ("Aguardando", "#718095"),
+                        "processando": ("Processando...", "#3b82f6"),
+                        "concluido": ("Concluído", "#16a34a"),
+                        "aviso": ("Concluído com aviso", "#ca8a04"),
+                        "erro": ("Erro", "#ef4444"),
+                        "cancelado": ("Cancelado", "#ca8a04"),
+                    }
+                    texto, cor = mapa.get(status, (str(status), "#718095"))
+                    label.configure(text=texto, text_color=cor)
+        try:
+            self.after(0, _ui)
+        except Exception:
+            pass
 
     def cancelar_conversao(self):
         if self.motor_conversao:
@@ -674,8 +811,9 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
                 self.indice_arquivo_atual = idx_arquivo
                 self.indice_pagina_atual = idx_pagina
                 
-                if idx_arquivo < len(self.arquivos_selecionados):
-                    caminho_atual = self.arquivos_selecionados[idx_arquivo]
+                arquivos_exibicao = self._arquivos_lote_atual or self.arquivos_selecionados
+                if idx_arquivo < len(arquivos_exibicao):
+                    caminho_atual = arquivos_exibicao[idx_arquivo]
                     img_pil = self.gerar_preview_imagem(caminho_atual, num_pagina=idx_pagina)
                     
                     if img_pil:
@@ -692,8 +830,11 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
             self.tela_inicio.textbox_preview.configure(state="disabled")
 
     def conversao_concluida(self, resumo=None):
-        self.tela_inicio.parar_scanner() 
+        self.tela_inicio.parar_scanner()
         self.motor_conversao = None
+        self._arquivos_lote_atual = []
+        self.indice_arquivo_atual = -1
+        self.indice_pagina_atual = -1
 
         self.tela_inicio.progressbar.set(1)
         self.tela_inicio.btn_converter.configure(state="normal")
@@ -704,27 +845,46 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
         qtd_alertas_ocr = int(resumo.get("qtd_alertas_ocr", 0) or 0)
         usou_ocr = bool(resumo.get("usou_ocr", False))
 
-        if usou_ocr and qtd_alertas_ocr > 0:
-            self.tela_inicio.lbl_status.configure(text="⚠️ Concluído com alertas de OCR", text_color="#ca8a04")
-            messagebox.showwarning(
-                "Concluído com Alertas",
-                "A conversão terminou, mas houve falhas de OCR em uma ou mais páginas.\n"
-                "Verifique o markdown e o arquivo de log para detalhes."
-            )
+        estat = resumo.get("estatisticas", {}) or {}
+        integridade_ok = bool(resumo.get("integridade_ok", True))
+        tempo = float(resumo.get("tempo_segundos", 0) or 0)
+        relatorio = (
+            f"Arquivos concluídos: {estat.get('arquivos_concluidos', 0)}/{estat.get('arquivos_total', len(self.arquivos_selecionados))}\n"
+            f"Páginas processadas: {estat.get('paginas_processadas', 0)}/{estat.get('paginas_total', 0)}\n"
+            f"Texto nativo: {estat.get('paginas_texto_nativo', 0)} página(s)\n"
+            f"OCR: {estat.get('paginas_ocr', 0)} página(s)\n"
+            f"Referências de imagem: {estat.get('paginas_referencia', 0)} página(s)\n"
+            f"Alertas: {qtd_alertas_ocr}\n"
+            f"Tempo total: {tempo:.1f}s\n"
+            f"Integridade: {'OK' if integridade_ok else 'REVISAR'}"
+        )
+        manifesto = resumo.get("manifesto")
+        if manifesto:
+            relatorio += f"\nManifesto: {manifesto}"
+
+        if (usou_ocr and qtd_alertas_ocr > 0) or not integridade_ok:
+            self.tela_inicio.lbl_status.configure(text="⚠️ Concluído com advertências", text_color="#ca8a04")
+            messagebox.showwarning("Relatório da Conversão", relatorio)
         else:
             self.tela_inicio.lbl_status.configure(text="✅ Concluído com Sucesso!", text_color="#16a34a")
-            messagebox.showinfo("Sucesso", "A conversão foi finalizada perfeitamente!")
+            messagebox.showinfo("Relatório da Conversão", relatorio)
 
         self._oferecer_atualizacao_pendente()
 
     def conversao_erro(self, erro, cancelado=False):
         self.tela_inicio.parar_scanner()
         self.motor_conversao = None
+        self._arquivos_lote_atual = []
+        self.indice_arquivo_atual = -1
+        self.indice_pagina_atual = -1
         self.tela_inicio.btn_converter.configure(state="normal")
         self.tela_inicio.btn_cancelar.grid_remove()
         self.tela_inicio.btn_cancelar.configure(state="normal", text="❌ Cancelar") 
         
         if cancelado:
+            for i, caminho in enumerate(self.arquivos_selecionados):
+                if self._status_arquivos.get(str(caminho)) in ("aguardando", "processando"):
+                    self.atualizar_status_arquivo(i, "cancelado")
             self.tela_inicio.lbl_status.configure(text="⚠️ Conversão Interrompida", text_color="#ca8a04")
             messagebox.showwarning("Cancelado", "A conversão foi cancelada pelo usuário.\nO que já havia sido lido foi salvo.")
         else:
@@ -773,6 +933,40 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
             historico_app.limpar_historico()
             messagebox.showinfo("Sucesso", "O histórico foi apagado!")
             self.tela_projetos.carregar_lista()
+
+    def alterar_modo_compatibilidade(self, ativo):
+        config_app.set("modo_compatibilidade", bool(ativo))
+        self.tela_inicio.lbl_status.configure(
+            text="Modo de compatibilidade ativado." if ativo else "Modo de compatibilidade desativado.",
+            text_color="#ca8a04" if ativo else "#8d99a8"
+        )
+
+    def atualizar_diagnostico(self):
+        def _worker():
+            try:
+                texto = texto_diagnostico(ocr_engine)
+            except Exception as e:
+                texto = f"Falha ao gerar diagnóstico: {e}"
+            self._ultimo_diagnostico = texto
+            try:
+                self.after(0, lambda t=texto: self.tela_diagnostico.definir_texto(t))
+            except Exception:
+                pass
+        import threading
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def copiar_diagnostico(self):
+        texto = self._ultimo_diagnostico or texto_diagnostico(ocr_engine)
+        self.clipboard_clear()
+        self.clipboard_append(texto)
+        messagebox.showinfo("Diagnóstico", "Diagnóstico copiado para a área de transferência.")
+
+    def abrir_pasta_logs(self):
+        pasta = get_logs_dir()
+        try:
+            os.startfile(str(pasta))
+        except Exception as e:
+            messagebox.showerror("Logs", f"Não foi possível abrir a pasta de logs:\n{e}")
 
     # ==========================================
     # ATUALIZAÇÕES AUTOMÁTICAS
@@ -916,6 +1110,9 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
         """Exibe uma atualização que ficou aguardando o fim da conversão."""
         info = self._update_info_pendente
         self._update_info_pendente = None
+        self._status_arquivos = {}
+        self._card_status_labels = {}
+        self._ultimo_diagnostico = ""
         if info and not self._atualizacao_em_andamento:
             self.after(350, lambda: self._mostrar_aviso_atualizacao(info))
 

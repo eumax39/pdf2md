@@ -1,6 +1,9 @@
 import logging
+from logging.handlers import RotatingFileHandler
 import pathlib
 import sys
+import os
+import tempfile
 from datetime import datetime
 
 
@@ -22,31 +25,78 @@ def get_resource_root():
 def get_resource_path(*parts):
     return get_resource_root().joinpath(*parts)
 
-def configurar_logs():
-    """Configura o sistema de logs diários na pasta /logs"""
-    pasta_logs = get_app_root() / "logs"
-    pasta_logs.mkdir(exist_ok=True) # Garante que a pasta existe
-    
-    # Cria um arquivo de log com a data de hoje
-    data_hoje = datetime.now().strftime("%Y-%m-%d")
-    caminho_log = pasta_logs / f"{data_hoje}.log"
-    
-    # Configuração do formato da mensagem de erro
-    logging.basicConfig(
-        filename=caminho_log,
-        level=logging.ERROR, # Grava apenas erros e exceções
-        format='%(asctime)s - %(levelname)s - %(funcName)s - %(message)s',
-        datefmt='%d/%m/%Y %H:%M:%S'
-    )
-    
-    return logging.getLogger("PDF2MD")
 
-# Instância do logger para capturarmos os erros
+def get_data_root():
+    """Pasta gravável para logs/diagnósticos, com fallback seguro.
+
+    Mantém compatibilidade com instalações antigas ao preferir a pasta do app
+    quando ela for gravável; caso contrário usa LOCALAPPDATA/TEMP.
+    """
+    candidatos = [get_app_root()]
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        candidatos.append(pathlib.Path(local) / "PDF2MD")
+    candidatos.append(pathlib.Path(tempfile.gettempdir()) / "PDF2MD")
+
+    for pasta in candidatos:
+        try:
+            pasta.mkdir(parents=True, exist_ok=True)
+            teste = pasta / ".write_test"
+            teste.write_text("ok", encoding="utf-8")
+            teste.unlink(missing_ok=True)
+            return pasta
+        except Exception:
+            continue
+    return pathlib.Path(tempfile.gettempdir())
+
+
+def get_logs_dir():
+    pasta = get_data_root() / "logs"
+    pasta.mkdir(parents=True, exist_ok=True)
+    return pasta
+
+
+def configurar_logs():
+    """Logs rotativos de operação, sem registrar conteúdo extraído dos PDFs."""
+    logger = logging.getLogger("PDF2MD")
+    if logger.handlers:
+        return logger
+
+    logger.setLevel(logging.INFO)
+    caminho_log = get_logs_dir() / "pdf2md.log"
+    handler = RotatingFileHandler(
+        caminho_log,
+        maxBytes=2 * 1024 * 1024,
+        backupCount=5,
+        encoding="utf-8",
+    )
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+        datefmt="%d/%m/%Y %H:%M:%S",
+    ))
+    logger.addHandler(handler)
+    logger.propagate = False
+    return logger
+
+
 logger = configurar_logs()
 
+
+def log_info(mensagem):
+    logger.info(str(mensagem))
+
+
+def log_aviso(mensagem):
+    logger.warning(str(mensagem))
+
+
 def log_erro(mensagem, excecao=None):
-    """Função utilitária rápida para gravar erros de forma limpa."""
+    """Registra exceção técnica. Evite passar conteúdo extraído como mensagem."""
     if excecao:
-        logger.error(f"{mensagem} | Detalhe: {str(excecao)}", exc_info=True)
+        logger.error(f"{mensagem} | {type(excecao).__name__}: {excecao}", exc_info=True)
     else:
-        logger.error(mensagem)
+        logger.error(str(mensagem))
+
+
+def caminho_log_atual():
+    return get_logs_dir() / "pdf2md.log"

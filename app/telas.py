@@ -340,6 +340,57 @@ class TelaInicio(ctk.CTkFrame):
         except Exception:
             pass
 
+    def _recriar_label_scanner(self, exibir=False):
+        """Recria o label do scanner caso o objeto Tk de imagem tenha ficado inválido."""
+        try:
+            self.lbl_img_scanner.destroy()
+        except Exception:
+            pass
+        self.lbl_img_scanner = ctk.CTkLabel(
+            self.folha_scanner, text="", fg_color="transparent", anchor="center"
+        )
+        self.lbl_preview_img = self.lbl_img_scanner
+        if exibir:
+            self.lbl_img_scanner.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+        else:
+            self.lbl_img_scanner.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+            self.lbl_img_scanner.grid_remove()
+
+    def _definir_imagem_scanner(self, imagem_grande):
+        """Anexa uma nova CTkImage mantendo referência forte antes de tocar no Tk."""
+        self._scanner_ctk_image = imagem_grande
+        try:
+            self.lbl_img_scanner.configure(image=imagem_grande, text="")
+        except tk.TclError:
+            # Se o Tcl perdeu o pyimage anterior, recriamos somente o label visual.
+            self._recriar_label_scanner(exibir=True)
+            self.lbl_img_scanner.configure(image=imagem_grande, text="")
+
+    def _limpar_imagem_scanner(self, ocultar=True):
+        """Desanexa a imagem antes de liberar a referência Python.
+
+        Essa ordem é importante: liberar CTkImage primeiro pode destruir o pyimage
+        enquanto o label Tcl ainda aponta para ele, gerando 'image pyimageX doesn't exist'.
+        """
+        imagem_anterior = self._scanner_ctk_image
+        try:
+            self.lbl_img_scanner.configure(image=None, text="")
+        except tk.TclError:
+            # Recuperação defensiva para labels que já ficaram com referência Tcl inválida.
+            self._recriar_label_scanner(exibir=not ocultar)
+        finally:
+            # Mantemos imagem_anterior viva até depois do detach/recreate.
+            self._scanner_ctk_image = None
+            try:
+                self.lbl_img_scanner._preview_image_ref = None
+            except Exception:
+                pass
+        if ocultar:
+            try:
+                self.lbl_img_scanner.grid_remove()
+            except Exception:
+                pass
+
     def abrir_visualizacao_pdf(self, caminho_pdf):
         """Troca apenas a galeria pelo preview; o bloco MD permanece independente."""
         self.modo_visualizacao = True
@@ -395,7 +446,7 @@ class TelaInicio(ctk.CTkFrame):
         self._preview_photo_image = None
         self._preview_canvas_item = None
         self.canvas_preview.delete("all")
-        self.lbl_img_scanner.configure(image=None, text="")
+        self._limpar_imagem_scanner(ocultar=True)
 
         try:
             with fitz.open(caminho_pdf) as doc:
@@ -544,8 +595,7 @@ class TelaInicio(ctk.CTkFrame):
         self._preview_canvas_item = None
         self.canvas_preview.delete("all")
         self.canvas_preview._preview_photo_ref = None
-        self.lbl_img_scanner.configure(image=None, text="")
-        self.lbl_img_scanner._preview_image_ref = None
+        self._limpar_imagem_scanner(ocultar=True)
         self.lbl_nome_scanner.configure(text="")
         self._fechar_doc_preview()
         self.caminho_pdf_atual = None
@@ -562,8 +612,7 @@ class TelaInicio(ctk.CTkFrame):
         self.btn_voltar_preview.grid_remove()
         self.btn_abrir_externo.grid_remove()
         self.lbl_preview_scanner.configure(text="Scanner / processamento")
-        self.lbl_img_scanner.configure(image=imagem_grande, text="")
-        self._scanner_ctk_image = imagem_grande
+        self._definir_imagem_scanner(imagem_grande)
         self.lbl_nome_scanner.configure(text=f"Escaneando: {texto_nome}")
         self.animando = True
         self.pos_y = 0.02
@@ -573,8 +622,7 @@ class TelaInicio(ctk.CTkFrame):
         self.animar_scanner()
 
     def atualizar_imagem_scanner(self, imagem_grande, texto_nome):
-        self.lbl_img_scanner.configure(image=imagem_grande, text="")
-        self._scanner_ctk_image = imagem_grande
+        self._definir_imagem_scanner(imagem_grande)
         self.lbl_nome_scanner.configure(text=f"Escaneando: {texto_nome}")
 
     def parar_scanner(self):
@@ -582,9 +630,7 @@ class TelaInicio(ctk.CTkFrame):
         self.linha_scanner.place_forget()
         self.frame_scanner.grid_remove()
         self.frame_galeria.grid()
-        self._scanner_ctk_image = None
-        self.lbl_img_scanner.configure(image=None, text="")
-        self.lbl_img_scanner.grid_remove()
+        self._limpar_imagem_scanner(ocultar=True)
         self.canvas_preview.grid()
 
     def animar_scanner(self):
@@ -615,8 +661,7 @@ class TelaInicio(ctk.CTkFrame):
         self._preview_canvas_item = None
         self.canvas_preview.delete("all")
         self.canvas_preview._preview_photo_ref = None
-        self.lbl_img_scanner.configure(image=None, text="")
-        self.lbl_img_scanner._preview_image_ref = None
+        self._limpar_imagem_scanner(ocultar=True)
         self.lbl_nome_scanner.configure(text="")
         self._fechar_doc_preview()
         self.caminho_pdf_atual = None
@@ -694,7 +739,7 @@ class TelaDetalhes(ctk.CTkFrame):
 
 
 class TelaConfigs(ctk.CTkFrame):
-    def __init__(self, master, comando_mudar_tema, comando_limpar_historico):
+    def __init__(self, master, comando_mudar_tema, comando_limpar_historico, comando_modo_compatibilidade=None):
         super().__init__(master, fg_color="transparent")
         self.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(self, text="Configurações", font=ctk.CTkFont(size=22, weight="bold"), text_color=TEXT).grid(row=0, column=0, pady=(4, 16), sticky="w")
@@ -712,3 +757,42 @@ class TelaConfigs(ctk.CTkFrame):
         ctk.CTkLabel(frame_dados, text="Dados do Aplicativo", font=ctk.CTkFont(size=15, weight="bold"), text_color=TEXT).grid(row=0, column=0, padx=16, pady=(16, 6), sticky="w")
         ctk.CTkLabel(frame_dados, text="Isso apagará o histórico de 'Meus Projetos', mas não excluirá os arquivos reais.", text_color=MUTED).grid(row=1, column=0, padx=16, pady=(0, 12), sticky="w")
         ctk.CTkButton(frame_dados, text="Apagar Todo o Histórico", fg_color="#b91c1c", hover_color="#991b1b", height=36, font=ctk.CTkFont(weight="bold"), command=comando_limpar_historico).grid(row=2, column=0, padx=16, pady=(0, 16), sticky="w")
+
+        frame_avancado = ctk.CTkFrame(self, fg_color=PANEL, corner_radius=12, border_width=1, border_color=BORDER)
+        frame_avancado.grid(row=3, column=0, sticky="ew", pady=10)
+        frame_avancado.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(frame_avancado, text="Compatibilidade", font=ctk.CTkFont(size=15, weight="bold"), text_color=TEXT).grid(row=0, column=0, padx=16, pady=(16, 4), sticky="w")
+        ctk.CTkLabel(frame_avancado, text="Reduz a pressão de memória e torna as retentativas de OCR mais conservadoras em computadores mais antigos.", text_color=MUTED, wraplength=720, justify="left").grid(row=1, column=0, padx=16, pady=(0, 8), sticky="w")
+        self.sw_compat = ctk.CTkSwitch(frame_avancado, text="Modo de compatibilidade", command=lambda: comando_modo_compatibilidade(bool(self.sw_compat.get())) if comando_modo_compatibilidade else None)
+        self.sw_compat.grid(row=2, column=0, padx=16, pady=(0, 16), sticky="w")
+        if bool(config_app.get("modo_compatibilidade")):
+            self.sw_compat.select()
+
+class TelaDiagnostico(ctk.CTkFrame):
+    def __init__(self, master, comando_atualizar, comando_copiar, comando_abrir_logs):
+        super().__init__(master, fg_color="transparent")
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(2, weight=1)
+
+        ctk.CTkLabel(
+            self, text="Sobre / Diagnóstico", font=ctk.CTkFont(size=22, weight="bold"), text_color=TEXT
+        ).grid(row=0, column=0, pady=(4, 12), sticky="w")
+
+        toolbar = ctk.CTkFrame(self, fg_color="transparent")
+        toolbar.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        ctk.CTkButton(toolbar, text="Atualizar diagnóstico", height=34, fg_color=BLUE, hover_color=BLUE_HOVER, command=comando_atualizar).pack(side="left")
+        ctk.CTkButton(toolbar, text="Copiar", height=34, fg_color=PANEL_2, hover_color="#1d2a39", command=comando_copiar).pack(side="left", padx=8)
+        ctk.CTkButton(toolbar, text="Abrir pasta de logs", height=34, fg_color=PANEL_2, hover_color="#1d2a39", command=comando_abrir_logs).pack(side="left")
+
+        self.texto = ctk.CTkTextbox(
+            self, font=ctk.CTkFont(family="Consolas", size=11), fg_color="#0a0f15",
+            border_width=1, border_color=BORDER, corner_radius=8
+        )
+        self.texto.grid(row=2, column=0, sticky="nsew")
+        self.definir_texto("Clique em 'Atualizar diagnóstico' para executar as verificações.")
+
+    def definir_texto(self, texto):
+        self.texto.configure(state="normal")
+        self.texto.delete("0.0", "end")
+        self.texto.insert("0.0", texto)
+        self.texto.configure(state="disabled")
