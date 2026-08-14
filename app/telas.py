@@ -1,5 +1,8 @@
 import customtkinter as ctk
 from tkinterdnd2 import DND_FILES
+import fitz
+from PIL import Image
+import pathlib
 
 from core.configuracao import config_app
 
@@ -52,19 +55,15 @@ class TelaInicio(ctk.CTkFrame):
         self.frame_scanner.grid(row=1, column=0, padx=20, pady=5, sticky="nsew")
         self.frame_scanner.grid_columnconfigure(0, weight=1)
         self.frame_scanner.grid_rowconfigure(0, weight=1)
-        self.frame_scanner.grid_remove() # Fica escondido até iniciar
+        self.frame_scanner.grid_remove()
 
-        # A "Folha" do scanner central
         self.folha_scanner = ctk.CTkFrame(self.frame_scanner, fg_color="white", corner_radius=0, border_width=1, border_color="#555555")
         self.folha_scanner.grid(row=0, column=0, pady=(20, 5))
-        
         self.lbl_img_scanner = ctk.CTkLabel(self.folha_scanner, text="")
-        self.lbl_img_scanner.pack(padx=5, pady=5) # Padding da folha branca
-        
+        self.lbl_img_scanner.pack(padx=5, pady=5)
         self.lbl_nome_scanner = ctk.CTkLabel(self.frame_scanner, text="", text_color="#a1a1aa", font=ctk.CTkFont(size=13, weight="bold"))
         self.lbl_nome_scanner.grid(row=1, column=0, pady=(0, 20))
 
-        # A linha azul fica DENTRO da folha branca agora!
         self.linha_scanner = ctk.CTkFrame(self.folha_scanner, height=4, fg_color="#3b82f6", corner_radius=2)
         self.animando = False
         self.pos_y = 0.02
@@ -97,11 +96,7 @@ class TelaInicio(ctk.CTkFrame):
         self.lbl_modo.grid(row=1, column=0, padx=20, pady=5, sticky="w")
         self.opt_modo = ctk.CTkOptionMenu(
             self.frame_opcoes,
-            values=[
-                MODO_HIBRIDO,
-                MODO_FORCAR_OCR,
-                MODO_REFERENCIA_IMAGEM,
-            ],
+            values=[MODO_HIBRIDO, MODO_FORCAR_OCR, MODO_REFERENCIA_IMAGEM],
             command=self._ao_mudar_modo,
         )
         self.opt_modo.grid(row=1, column=1, padx=20, pady=5, sticky="e")
@@ -133,11 +128,92 @@ class TelaInicio(ctk.CTkFrame):
         self.textbox_preview.configure(state="disabled")
 
         # ==========================================
+        # PRÉ-VISUALIZAÇÃO LADO A LADO (REFINADA)
+        # ==========================================
+        self.frame_preview_lado = ctk.CTkFrame(self, fg_color="#1a1a1c", corner_radius=10)
+        self.frame_preview_lado.grid(row=1, column=1, padx=(10, 0), pady=(10, 10), sticky="nsew")
+        self.frame_preview_lado.grid_columnconfigure(0, weight=1)
+        self.frame_preview_lado.grid_rowconfigure(0, weight=0)  # título
+        self.frame_preview_lado.grid_rowconfigure(1, weight=4)  # imagem
+        self.frame_preview_lado.grid_rowconfigure(2, weight=1)  # texto
+        self.frame_preview_lado.grid_rowconfigure(3, weight=0)  # navegação
+        self.frame_preview_lado.grid_remove()
+
+        # Título do preview (nome do arquivo)
+        self.lbl_preview_titulo = ctk.CTkLabel(
+            self.frame_preview_lado,
+            text="Pré-visualização",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color="#a1a1aa",
+            anchor="w"
+        )
+        self.lbl_preview_titulo.grid(row=0, column=0, padx=15, pady=(10, 5), sticky="ew")
+
+        # Imagem da página (sem cortes)
+        self.lbl_preview_img = ctk.CTkLabel(
+            self.frame_preview_lado,
+            text="Nenhum PDF selecionado",
+            font=ctk.CTkFont(size=14),
+            anchor="center"
+        )
+        self.lbl_preview_img.grid(row=1, column=0, padx=15, pady=(0, 5), sticky="nsew")
+
+        # Texto nativo (com borda suave)
+        self.txt_preview_texto = ctk.CTkTextbox(
+            self.frame_preview_lado,
+            font=ctk.CTkFont(family="Consolas", size=11),
+            border_width=1,
+            border_color="#3f3f46"
+        )
+        self.txt_preview_texto.grid(row=2, column=0, padx=15, pady=5, sticky="nsew")
+        self.txt_preview_texto.insert("0.0", "Selecione um PDF para visualizar o texto nativo.")
+        self.txt_preview_texto.configure(state="disabled")
+
+        # Controles de navegação (com estilo mais clean)
+        self.frame_nav = ctk.CTkFrame(self.frame_preview_lado, fg_color="transparent")
+        self.frame_nav.grid(row=3, column=0, padx=15, pady=(5, 15), sticky="ew")
+        self.frame_nav.grid_columnconfigure((0, 1, 2, 3), weight=1)
+
+        # Botões criados COM command direto e depois configurados
+        self.btn_prev = ctk.CTkButton(
+            self.frame_nav, text="◄", width=35, height=30,
+            fg_color="#3f3f46", hover_color="#52525b", state="disabled",
+            command=self.pagina_anterior  # command direto
+        )
+        self.btn_prev.grid(row=0, column=0, padx=3)
+
+        self.lbl_pagina = ctk.CTkLabel(
+            self.frame_nav, text="Página 0 de 0",
+            font=ctk.CTkFont(size=12), text_color="#a1a1aa"
+        )
+        self.lbl_pagina.grid(row=0, column=1, padx=10)
+
+        self.btn_next = ctk.CTkButton(
+            self.frame_nav, text="►", width=35, height=30,
+            fg_color="#3f3f46", hover_color="#52525b", state="disabled",
+            command=self.proxima_pagina  # command direto
+        )
+        self.btn_next.grid(row=0, column=2, padx=3)
+
+        self.btn_abrir_externo = ctk.CTkButton(
+            self.frame_nav, text="🔍 Abrir", width=60, height=30,
+            fg_color="#3f3f46", hover_color="#52525b", state="disabled",
+            command=self._abrir_pdf_externo  # command direto
+        )
+        self.btn_abrir_externo.grid(row=0, column=3, padx=3)
+
+        # Atributos de estado
+        self.doc_preview = None
+        self.caminho_pdf_atual = None
+        self.pagina_atual = 0
+        self.total_paginas = 0
+
+        # ==========================================
         # RODAPÉ: Barra de Progresso
         # ==========================================
         self.frame_rodape = ctk.CTkFrame(self, fg_color="transparent")
         self.frame_rodape.grid(row=2, column=0, columnspan=2, pady=(10, 0), sticky="ew")
-        self.frame_rodape.grid_columnconfigure(0, weight=1) 
+        self.frame_rodape.grid_columnconfigure(0, weight=1)
 
         self.lbl_status = ctk.CTkLabel(self.frame_rodape, text="Aguardando arquivos...", text_color="gray")
         self.lbl_status.grid(row=0, column=0, sticky="w", padx=(0, 10))
@@ -154,15 +230,13 @@ class TelaInicio(ctk.CTkFrame):
         self.btn_converter.grid(row=0, column=2, rowspan=2, sticky="e")
 
     # ==========================================
-    # LÓGICA DO SCANNER ANIMADO (FOCO INDIVIDUAL)
+    # LÓGICA DO SCANNER
     # ==========================================
     def iniciar_scanner(self, imagem_grande, texto_nome):
-        # Oculta a galeria e mostra o palco do scanner
         self.frame_galeria.grid_remove()
         self.frame_scanner.grid()
         self.lbl_img_scanner.configure(image=imagem_grande)
         self.lbl_nome_scanner.configure(text=f"⏳ Escaneando: {texto_nome}")
-
         self.animando = True
         self.pos_y = 0.02
         self.direcao = 1
@@ -179,13 +253,11 @@ class TelaInicio(ctk.CTkFrame):
             self.lbl_formato.grid()
             self.opt_formato_saida.grid()
         else:
-            # Mantem comportamento historico dos demais modos: sempre gera markdown.
             self.opt_formato_saida.set(FORMATO_MD)
             self.lbl_formato.grid_remove()
             self.opt_formato_saida.grid_remove()
 
     def atualizar_imagem_scanner(self, imagem_grande, texto_nome):
-        """Muda a folha central quando o OCR avança para o próximo PDF"""
         self.lbl_img_scanner.configure(image=imagem_grande)
         self.lbl_nome_scanner.configure(text=f"⏳ Escaneando: {texto_nome}")
 
@@ -197,17 +269,134 @@ class TelaInicio(ctk.CTkFrame):
 
     def animar_scanner(self):
         if not self.animando: return
-        
         self.pos_y += 0.02 * self.direcao
         if self.pos_y >= 0.98: self.direcao = -1
         elif self.pos_y <= 0.02: self.direcao = 1
-            
         self.linha_scanner.place(rely=self.pos_y)
-        self.linha_scanner.lift() 
-        self.after(30, self.animar_scanner) 
+        self.linha_scanner.lift()
+        self.after(30, self.animar_scanner)
+
+    # ==========================================
+    # PRÉ-VISUALIZAÇÃO LADO A LADO (REFINADA)
+    # ==========================================
+    def carregar_preview(self, caminho_pdf):
+        """Carrega um PDF e exibe a primeira página."""
+        if self.doc_preview:
+            try:
+                self.doc_preview.close()
+            except:
+                pass
+            self.doc_preview = None
+
+        self.caminho_pdf_atual = caminho_pdf
+        try:
+            self.doc_preview = fitz.open(caminho_pdf)
+            self.total_paginas = len(self.doc_preview)
+            self.pagina_atual = 0
+            self.frame_preview_lado.grid()
+            # Atualiza título com o nome do arquivo
+            nome_arquivo = pathlib.Path(caminho_pdf).name
+            self.lbl_preview_titulo.configure(text=f"📄 Pré-visualização: {nome_arquivo}")
+            self._atualizar_preview()
+            # Habilita os botões conforme a página
+            self.btn_prev.configure(state="normal" if self.pagina_atual > 0 else "disabled")
+            self.btn_next.configure(state="normal" if self.pagina_atual < self.total_paginas - 1 else "disabled")
+            self.btn_abrir_externo.configure(state="normal")
+            print(f"[Preview] Carregado: {nome_arquivo}, total páginas: {self.total_paginas}")
+        except Exception as e:
+            print(f"Erro ao carregar preview: {e}")
+
+    def _atualizar_preview(self):
+        """Atualiza a imagem e o texto da página atual."""
+        if not self.doc_preview:
+            print(">>> _atualizar_preview: doc_preview é None")
+            return
+        try:
+            pagina = self.doc_preview.load_page(self.pagina_atual)
+        except Exception as e:
+            print(f"Erro ao carregar página {self.pagina_atual}: {e}")
+            return
+
+        # Atualiza imagem
+        try:
+            pix = pagina.get_pixmap(dpi=100)
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            max_w, max_h = 380, 400
+            img.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
+            ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=img.size)
+            self.lbl_preview_img.configure(image=ctk_img, text="")
+        except Exception as e:
+            self.lbl_preview_img.configure(text="Erro ao renderizar página", image=None)
+            print(f"Erro ao renderizar imagem: {e}")
+
+        # Atualiza texto
+        try:
+            texto = pagina.get_text("text") or "Nenhum texto nativo encontrado."
+            self.txt_preview_texto.configure(state="normal")
+            self.txt_preview_texto.delete("0.0", "end")
+            self.txt_preview_texto.insert("0.0", texto)
+            self.txt_preview_texto.configure(state="disabled")
+        except Exception as e:
+            print(f"Erro ao extrair texto: {e}")
+
+        self.lbl_pagina.configure(text=f"Página {self.pagina_atual+1} de {self.total_paginas}")
+        # Garante que os botões estejam no estado correto
+        self.btn_prev.configure(state="normal" if self.pagina_atual > 0 else "disabled")
+        self.btn_next.configure(state="normal" if self.pagina_atual < self.total_paginas - 1 else "disabled")
+        print(f"[Preview] Atualizado: página {self.pagina_atual+1} de {self.total_paginas}")
+
+    def pagina_anterior(self):
+        print(">>> pagina_anterior chamado")
+        if self.pagina_atual > 0:
+            self.pagina_atual -= 1
+            self._atualizar_preview()
+        else:
+            print(">>> pagina_anterior: já está na primeira página")
+
+    def proxima_pagina(self):
+        print(">>> proxima_pagina chamado")
+        if self.pagina_atual < self.total_paginas - 1:
+            self.pagina_atual += 1
+            self._atualizar_preview()
+        else:
+            print(">>> proxima_pagina: já está na última página")
+
+    def limpar_preview(self):
+        if self.doc_preview:
+            try:
+                self.doc_preview.close()
+            except:
+                pass
+            self.doc_preview = None
+        self.caminho_pdf_atual = None
+        self.frame_preview_lado.grid_remove()
+        self.lbl_preview_titulo.configure(text="Pré-visualização")
+        self.lbl_preview_img.configure(text="Nenhum PDF selecionado", image=None)
+        self.txt_preview_texto.configure(state="normal")
+        self.txt_preview_texto.delete("0.0", "end")
+        self.txt_preview_texto.insert("0.0", "Selecione um PDF para visualizar o texto nativo.")
+        self.txt_preview_texto.configure(state="disabled")
+        self.lbl_pagina.configure(text="Página 0 de 0")
+        self.btn_prev.configure(state="disabled")
+        self.btn_next.configure(state="disabled")
+        self.btn_abrir_externo.configure(state="disabled")
+
+    def _abrir_pdf_externo(self):
+        if self.caminho_pdf_atual:
+            import os
+            try:
+                os.startfile(self.caminho_pdf_atual)
+                print(f"[Abrir] Abrindo {self.caminho_pdf_atual}")
+            except Exception as e:
+                print(f"Erro ao abrir PDF: {e}")
+
+    def selecionar_pdf_para_preview(self, caminho_pdf):
+        """Método público para trocar o preview de PDF (chamado ao clicar na miniatura)."""
+        self.carregar_preview(caminho_pdf)
 
 
-# --- (Restante das telas: Projetos, Detalhes e Configs ficam inalteradas) ---
+# --- As classes TelaProjetos, TelaDetalhes e TelaConfigs permanecem inalteradas ---
+# (mantenha exatamente como você já tem)
 class TelaProjetos(ctk.CTkFrame):
     def __init__(self, master, comando_abrir_detalhes):
         super().__init__(master, fg_color="transparent")

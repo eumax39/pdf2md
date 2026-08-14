@@ -3,6 +3,14 @@ import subprocess
 import sys
 from multiprocessing import freeze_support
 
+try:
+    from core.updater import Atualizador
+    from packaging.version import Version
+except ImportError:
+    # Em modo desenvolvimento, pode não estar instalado
+    Atualizador = None
+    Version = None
+
 def checar_dependencias():
     """Verifica dependências e tenta instalá-las de forma compatível com ambientes uv."""
     if getattr(sys, "frozen", False):
@@ -124,6 +132,10 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
         self.mostrar_tela("inicio")
         self.atualizar_interface_arquivos()
         self.after(800, self.verificar_saude_ocr_inicial)
+
+        # Verificar atualizações (apenas no executável)
+        if getattr(sys, 'frozen', False) and Atualizador is not None:
+            self.after(3000, self._verificar_atualizacao_background)
 
     def verificar_saude_ocr_inicial(self):
         modo = normalizar_modo_conversao(config_app.get("modo_conversao"))
@@ -252,11 +264,21 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
         para_adicionar = [p for p in novos_pdfs if p not in self.arquivos_selecionados]
         self.arquivos_selecionados.extend(para_adicionar)
         self.atualizar_interface_arquivos()
+        # Carrega o preview do primeiro arquivo (se houver)
+        if self.arquivos_selecionados:
+            self.tela_inicio.carregar_preview(self.arquivos_selecionados[0])
+        else:
+            self.tela_inicio.limpar_preview()
 
     def remover_arquivo(self, caminho):
         if caminho in self.arquivos_selecionados:
             self.arquivos_selecionados.remove(caminho)
             self.atualizar_interface_arquivos()
+            # Atualiza preview para o primeiro arquivo restante
+            if self.arquivos_selecionados:
+                self.tela_inicio.carregar_preview(self.arquivos_selecionados[0])
+            else:
+                self.tela_inicio.limpar_preview()
 
     def gerar_preview_imagem(self, caminho_pdf, num_pagina=0):
         """Gera e reutiliza previews de páginas para reduzir o custo de renderização."""
@@ -276,42 +298,155 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
         except Exception:
             return None
 
+    def _selecionar_card_preview(self, caminho, card):
+        """Seleciona um card, atualiza o preview e o destaque."""
+        # Remove destaque de todos os cards
+        for child in self.tela_inicio.frame_galeria.winfo_children():
+            if isinstance(child, ctk.CTkFrame) and child != self.tela_inicio._drop_area:
+                try:
+                    child.configure(border_width=2, border_color="#3f3f46")
+                except:
+                    pass
+        # Destaque no card clicado
+        try:
+            card.configure(border_width=2, border_color="#3b82f6")
+        except:
+            pass
+        # Carrega o preview
+        self.tela_inicio.selecionar_pdf_para_preview(caminho)
+
+    def _mostrar_lista_completa(self):
+        """Abre uma janela com a lista completa de arquivos."""
+        if not self.arquivos_selecionados:
+            return
+
+        janela = ctk.CTkToplevel(self)
+        janela.title("Todos os arquivos na fila")
+        janela.geometry("400x300")
+        janela.resizable(True, True)
+        janela.transient(self)
+        janela.grab_set()
+
+        scroll = ctk.CTkScrollableFrame(janela, fg_color="transparent")
+        scroll.pack(fill="both", expand=True, padx=10, pady=10)
+
+        for caminho in self.arquivos_selecionados:
+            nome = pathlib.Path(caminho).name
+            frame = ctk.CTkFrame(scroll, fg_color="#2b2b2b", corner_radius=8)
+            frame.pack(fill="x", pady=3)
+
+            label = ctk.CTkLabel(frame, text=nome, anchor="w")
+            label.pack(side="left", padx=10, pady=5)
+
+            # Ao clicar no frame ou label, seleciona esse arquivo
+            def _on_click(c=caminho, janela=janela):
+                janela.destroy()
+                # Carrega o preview
+                self.tela_inicio.carregar_preview(c)
+                # Tenta destacar o card correspondente (se estiver visível)
+                for child in self.tela_inicio.frame_galeria.winfo_children():
+                    if isinstance(child, ctk.CTkFrame) and child != self.tela_inicio._drop_area:
+                        if hasattr(child, 'caminho') and child.caminho == c:
+                            # Remove destaque de todos
+                            for ch in self.tela_inicio.frame_galeria.winfo_children():
+                                if isinstance(ch, ctk.CTkFrame) and ch != self.tela_inicio._drop_area:
+                                    try:
+                                        ch.configure(border_width=2, border_color="#3f3f46")
+                                    except:
+                                        pass
+                            child.configure(border_width=2, border_color="#3b82f6")
+                            break
+
+            # Usamos lambda para ignorar o evento e passar o caminho
+            frame.bind("<Button-1>", lambda e, c=caminho: _on_click(c))
+            label.bind("<Button-1>", lambda e, c=caminho: _on_click(c))
+
     def atualizar_interface_arquivos(self):
+        # Limpa a galeria (mantém a linha_scanner)
         for widget in self.tela_inicio.frame_galeria.winfo_children():
             if widget != self.tela_inicio.linha_scanner:
                 widget.destroy()
-        
+
         self.raw_thumbnails.clear()
         qtd = len(self.arquivos_selecionados)
 
+        # ÁREA DE DROP SEMPRE VISÍVEL (tamanho varia se há arquivos)
+        if qtd == 0:
+            # Quando vazio, ocupa todo o espaço
+            area_drop = ctk.CTkFrame(
+                self.tela_inicio.frame_galeria,
+                fg_color="transparent",
+                border_width=2,
+                border_color="#3f3f46",
+                corner_radius=8,
+                cursor="hand2"
+            )
+            area_drop.grid(row=0, column=0, columnspan=2, rowspan=2, sticky="nsew", padx=20, pady=20)
+
+            lbl_drop = ctk.CTkLabel(
+                area_drop,
+                text="📂\n\nArraste e solte seus PDFs aqui\nou clique para selecionar",
+                text_color="gray",
+                font=ctk.CTkFont(size=14)
+            )
+            lbl_drop.pack(expand=True, fill="both")
+            self.tela_inicio._drop_area = area_drop
+        else:
+            # Quando há arquivos, área de drop fica no topo (menor)
+            area_drop = ctk.CTkFrame(
+                self.tela_inicio.frame_galeria,
+                fg_color="transparent",
+                border_width=2,
+                border_color="#3f3f46",
+                corner_radius=8,
+                cursor="hand2"
+            )
+            area_drop.grid(row=0, column=0, columnspan=2, sticky="ew", padx=20, pady=(20, 5))
+
+            lbl_drop = ctk.CTkLabel(
+                area_drop,
+                text="📂 Arraste mais PDFs aqui   (ou clique para selecionar)",
+                text_color="gray",
+                font=ctk.CTkFont(size=12)
+            )
+            lbl_drop.pack(pady=5)
+            self.tela_inicio._drop_area = area_drop
+
+        # Função de clique (compartilhada para ambos os casos)
+        def _on_clique(event=None):
+            self.selecionar_pdf()
+
+        area_drop.bind("<Button-1>", _on_clique)
+        lbl_drop.bind("<Button-1>", _on_clique)
+
+        # Drag-and-drop
+        try:
+            area_drop.drop_target_register(DND_FILES)
+            area_drop.dnd_bind('<<Drop>>', self.ao_soltar_arquivos)
+        except Exception:
+            pass
+
+        # Se não há arquivos, finaliza aqui
         if qtd == 0:
             self.tela_inicio.lbl_arquivo_selecionado.configure(text="0 arquivos prontos")
             self.tela_inicio.btn_converter.configure(state="disabled")
-
-            area_drop = ctk.CTkButton(
-                self.tela_inicio.frame_galeria,
-                text="\n\n📂\n\nArraste e solte seus PDFs aqui\nou use os botões abaixo\n\n",
-                fg_color="transparent", hover_color="#27272a", border_width=2,
-                border_color="#3f3f46", text_color="gray", command=self.selecionar_pdf
-            )
-            area_drop.grid(row=0, column=0, columnspan=2, rowspan=2, sticky="nsew", padx=20, pady=20)
-            try:
-                area_drop.drop_target_register(DND_FILES)
-                area_drop.dnd_bind('<<Drop>>', self.ao_soltar_arquivos)
-            except: pass
             return
 
+        # ==========================================
+        # EXIBE AS MINIATURAS (quando há arquivos)
+        # ==========================================
         self.tela_inicio.lbl_arquivo_selecionado.configure(text=f"Total: {qtd} arquivo(s) na fila de conversão")
         self.tela_inicio.btn_converter.configure(state="normal")
         self.tela_inicio.lbl_status.configure(text="Pronto para iniciar.", text_color="gray")
 
         max_previews = min(4, qtd)
-        posicoes = [(0, 0), (0, 1), (1, 0), (1, 1)]
+        # Linhas 1 e 2 (linha 0 é a área de drop)
+        posicoes = [(1, 0), (1, 1), (2, 0), (2, 1)]
 
         for i in range(max_previews):
             caminho = self.arquivos_selecionados[i]
             img_pil = self.gerar_preview_imagem(caminho)
-            
+
             if img_pil:
                 self.raw_thumbnails.append(img_pil)
                 ctk_img = ctk.CTkImage(light_image=img_pil, dark_image=img_pil, size=(140, 198))
@@ -320,30 +455,58 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
                 row, col = posicoes[i]
                 card.grid(row=row, column=col, padx=10, pady=10, sticky="n")
 
+                # Armazena o caminho no card para identificar depois
+                card.caminho = caminho
+
+                # ===== CLIQUE NA MINIATURA COM DESTAQUE =====
+                card.bind("<Button-1>", lambda e, c=caminho, card=card: self._selecionar_card_preview(c, card))
+                
                 folha = ctk.CTkFrame(card, fg_color="white", corner_radius=0, border_width=1, border_color="#cccccc")
                 folha.pack(pady=(15, 5), padx=10)
-                
+
                 lbl_img = ctk.CTkLabel(folha, text="", image=ctk_img)
-                lbl_img.pack(padx=4, pady=4) 
+                lbl_img.pack(padx=4, pady=4)
+                lbl_img.bind("<Button-1>", lambda e, c=caminho, card=card: self._selecionar_card_preview(c, card))
 
                 nome_curto = pathlib.Path(caminho).name
-                if len(nome_curto) > 18: nome_curto = nome_curto[:15] + "..."
-                
+                if len(nome_curto) > 18:
+                    nome_curto = nome_curto[:15] + "..."
+
                 lbl_txt = ctk.CTkLabel(card, text=nome_curto, text_color="#a1a1aa", font=ctk.CTkFont(size=11, weight="bold"))
                 lbl_txt.pack()
+                lbl_txt.bind("<Button-1>", lambda e, c=caminho, card=card: self._selecionar_card_preview(c, card))
 
-                btn_remover = ctk.CTkButton(folha, text="✕", width=22, height=22, corner_radius=11,
-                                            fg_color="#ef4444", hover_color="#b91c1c", text_color="white",
-                                            bg_color="white", 
-                                            font=ctk.CTkFont(size=11, weight="bold"),
-                                            command=lambda c=caminho: self.remover_arquivo(c))
+                btn_remover = ctk.CTkButton(
+                    folha,
+                    text="✕",
+                    width=22,
+                    height=22,
+                    corner_radius=11,
+                    fg_color="#ef4444",
+                    hover_color="#b91c1c",
+                    text_color="white",
+                    bg_color="white",
+                    font=ctk.CTkFont(size=11, weight="bold"),
+                    command=lambda c=caminho: self.remover_arquivo(c)
+                )
                 btn_remover.place(relx=1.0, rely=0.0, x=-2, y=2, anchor="ne")
 
+                # Se for o primeiro arquivo, já deixa destacado
+                if i == 0:
+                    card.configure(border_width=2, border_color="#3b82f6")
+
+        # Botão "+ X arquivos" (clicável)
         if qtd > 4:
-            frame_aviso = ctk.CTkFrame(self.tela_inicio.frame_galeria, fg_color="#3b82f6", corner_radius=15, height=30)
-            frame_aviso.place(relx=0.5, rely=0.96, anchor="center")
-            lbl_extra = ctk.CTkLabel(frame_aviso, text=f"+ {qtd - 4} arquivo(s) na fila", text_color="white", font=ctk.CTkFont(size=12, weight="bold"))
-            lbl_extra.pack(padx=15, pady=2)
+            btn_extra = ctk.CTkButton(
+                self.tela_inicio.frame_galeria,
+                text=f"+ {qtd - 4} arquivo(s) na fila",
+                fg_color="#3b82f6",
+                hover_color="#2563eb",
+                corner_radius=15,
+                height=30,
+                command=self._mostrar_lista_completa
+            )
+            btn_extra.place(relx=0.5, rely=0.96, anchor="center")
 
     def selecionar_pasta_destino(self):
         pasta = filedialog.askdirectory()
@@ -540,6 +703,69 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
             historico_app.limpar_historico()
             messagebox.showinfo("Sucesso", "O histórico foi apagado!")
             self.tela_projetos.carregar_lista()
+
+    # ==========================================
+    # ATUALIZAÇÕES AUTOMÁTICAS
+    # ==========================================
+    def _verificar_atualizacao_background(self):
+        """Verifica atualizações em segundo plano (não bloqueia a UI)."""
+        def _worker():
+            try:
+                updater = Atualizador()
+                update_info = updater.verificar()
+                if update_info:
+                    self.after(0, lambda: self._mostrar_aviso_atualizacao(update_info))
+            except Exception:
+                # Falha silenciosa (não incomoda o usuário)
+                pass
+
+        import threading
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _mostrar_aviso_atualizacao(self, update_info):
+        """Exibe um popup perguntando se o usuário quer atualizar."""
+        versao = update_info.get("versao", "desconhecida")
+        notas = update_info.get("body", "").strip()[:300]
+
+        msg = f"Nova versão **{versao}** disponível!\n\n"
+        if notas:
+            msg += f"Principais mudanças:\n{notas}\n\n"
+        msg += "Deseja baixar e instalar agora?"
+
+        resposta = messagebox.askyesno("📦 Atualização Disponível", msg, icon='info')
+        if resposta:
+            self._baixar_atualizacao(update_info)
+
+    def _baixar_atualizacao(self, update_info):
+        """Inicia o download e a instalação da atualização."""
+        assets = update_info.get("assets", [])
+        # Procura o primeiro arquivo .exe nos assets
+        asset_exe = next((a for a in assets if a["name"].endswith(".exe")), None)
+
+        if not asset_exe:
+            messagebox.showerror("Erro", "Instalador não encontrado no release.")
+            return
+
+        # Atualiza o status na barra
+        self.tela_inicio.lbl_status.configure(text="⬇️ Baixando atualização...", text_color="#3b82f6")
+
+        def _baixar():
+            try:
+                updater = Atualizador()
+                updater.baixar_e_instalar(
+                    asset_exe["browser_download_url"],
+                    asset_exe["name"],
+                    callback_progress=self._atualizar_progresso_download
+                )
+            except Exception as e:
+                self.after(0, lambda: messagebox.showerror("Erro", f"Falha ao atualizar: {e}"))
+
+        import threading
+        threading.Thread(target=_baixar, daemon=True).start()
+
+    def _atualizar_progresso_download(self, progresso):
+        """Atualiza a barra de progresso durante o download."""
+        self.after(0, lambda: self.tela_inicio.progressbar.set(progresso / 100))
 
 if __name__ == "__main__":
     # Necessário no Windows (especialmente em executáveis PyInstaller) para

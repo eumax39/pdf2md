@@ -44,6 +44,8 @@ _extras_ocr_modulos = [
     'imgaug',
     'albumentations',
     'lmdb',
+    'packaging',
+    'requests',
 ]
 
 for _mod in _extras_ocr_modulos:
