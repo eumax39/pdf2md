@@ -1,12 +1,26 @@
 import json
 import pathlib
+import shutil
 
-from core.utils import get_app_root
+from core.utils import get_app_root, get_data_root
+
+
+def _obter_caminho_config():
+    caminho_data = get_data_root() / "config.json"
+    if not caminho_data.exists():
+        caminho_app = get_app_root() / "config.json"
+        if caminho_app.exists():
+            try:
+                shutil.copy2(caminho_app, caminho_data)
+            except Exception:
+                pass
+    return caminho_data
+
 
 class Configuracao:
     def __init__(self):
-        # O arquivo config.json fica ao lado da aplicação quando empacotada.
-        self.caminho_config = get_app_root() / "config.json"
+        # O arquivo config.json fica na pasta de dados gravável (%LOCALAPPDATA%/PDF2MD).
+        self.caminho_config = _obter_caminho_config()
         
         # Configurações padrão de fábrica
         self.configs = {

@@ -1,11 +1,27 @@
 import json
+import shutil
 from datetime import datetime
 
-from core.utils import get_app_root
+from core.utils import get_app_root, get_data_root
 
-ARQUIVO_MEMORIA = get_app_root() / "historico_projetos.json"
+
+def _obter_caminho_historico():
+    caminho_data = get_data_root() / "historico_projetos.json"
+    if not caminho_data.exists():
+        caminho_app = get_app_root() / "historico_projetos.json"
+        if caminho_app.exists():
+            try:
+                shutil.copy2(caminho_app, caminho_data)
+            except Exception:
+                pass
+    return caminho_data
+
 
 class HistoricoApp:
+    @property
+    def arquivo_memoria(self):
+        return _obter_caminho_historico()
+
     def adicionar_projeto(self, nome_pdf, caminho_md):
         historico = self.obter_todos()
         
@@ -21,20 +37,25 @@ class HistoricoApp:
         }
         historico.insert(0, novo_projeto)
         
-        with open(ARQUIVO_MEMORIA, "w", encoding="utf-8") as f:
+        caminho = self.arquivo_memoria
+        with open(caminho, "w", encoding="utf-8") as f:
             json.dump(historico, f, indent=4, ensure_ascii=False)
 
     def obter_todos(self):
-        if ARQUIVO_MEMORIA.exists():
+        caminho = self.arquivo_memoria
+        if caminho.exists():
             try:
-                with open(ARQUIVO_MEMORIA, "r", encoding="utf-8") as f:
+                with open(caminho, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception:
                 pass
         return []
 
     def limpar_historico(self):
-        with open(ARQUIVO_MEMORIA, "w", encoding="utf-8") as f:
+        caminho = self.arquivo_memoria
+        with open(caminho, "w", encoding="utf-8") as f:
             json.dump([], f)
 
+
 historico_app = HistoricoApp()
+ARQUIVO_MEMORIA = _obter_caminho_historico()

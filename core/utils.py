@@ -26,14 +26,21 @@ def get_resource_path(*parts):
     return get_resource_root().joinpath(*parts)
 
 
+_DATA_ROOT_CACHE = None
+
+
 def get_data_root():
-    """Pasta gravável para logs/diagnósticos, com fallback seguro.
+    """Pasta gravável para logs/diagnósticos, configurações e histórico com fallback seguro.
 
     Mantém compatibilidade com instalações antigas ao preferir a pasta do app
-    quando ela for gravável; caso contrário usa LOCALAPPDATA/TEMP.
+    quando ela for gravável; caso contrário usa LOCALAPPDATA/APPDATA/TEMP.
     """
+    global _DATA_ROOT_CACHE
+    if _DATA_ROOT_CACHE is not None:
+        return _DATA_ROOT_CACHE
+
     candidatos = [get_app_root()]
-    local = os.environ.get("LOCALAPPDATA")
+    local = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
     if local:
         candidatos.append(pathlib.Path(local) / "PDF2MD")
     candidatos.append(pathlib.Path(tempfile.gettempdir()) / "PDF2MD")
@@ -44,10 +51,12 @@ def get_data_root():
             teste = pasta / ".write_test"
             teste.write_text("ok", encoding="utf-8")
             teste.unlink(missing_ok=True)
+            _DATA_ROOT_CACHE = pasta
             return pasta
         except Exception:
             continue
-    return pathlib.Path(tempfile.gettempdir())
+    _DATA_ROOT_CACHE = pathlib.Path(tempfile.gettempdir())
+    return _DATA_ROOT_CACHE
 
 
 def get_logs_dir():
