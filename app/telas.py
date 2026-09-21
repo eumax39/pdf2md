@@ -174,7 +174,14 @@ class TelaInicio(ctk.CTkFrame):
         )
         self.btn_next_scanner.grid(row=0, column=2, sticky="e")
 
-        self.linha_scanner = ctk.CTkFrame(self.folha_scanner, height=3, fg_color=BLUE, corner_radius=2)
+        # Linha laser cyan neon futurista para o scanner
+        self.linha_scanner = ctk.CTkFrame(self.folha_scanner, height=4, fg_color="#00f0ff", corner_radius=2)
+        self.lbl_badge_diagnostico = ctk.CTkLabel(
+            self.folha_scanner, text="⚡ ANALISANDO PÁGINA...",
+            fg_color="#0d233a", text_color="#00f0ff",
+            font=ctk.CTkFont(size=10, weight="bold"),
+            corner_radius=6
+        )
 
         # Botões inferiores com ícones azuis reais (PNG), não glifos/emoji do Windows.
         self.frame_botoes_upload = ctk.CTkFrame(self.frame_upload, fg_color="transparent")
@@ -470,26 +477,30 @@ class TelaInicio(ctk.CTkFrame):
             )
 
     @staticmethod
-    def _renderizar_pagina_completa_por_caminho(caminho_pdf, indice, dpi=180):
+    def _renderizar_pagina_completa_por_caminho(caminho_pdf, indice=0, dpi=180):
         """Renderiza uma página em um documento recém-aberto, incluindo a MediaBox completa."""
-        with fitz.open(caminho_pdf) as doc:
-            if len(doc) == 0:
-                return None
-            indice = max(0, min(int(indice), len(doc) - 1))
-            pagina = doc.load_page(indice)
-            crop_original = fitz.Rect(pagina.cropbox)
-            try:
+        try:
+            with fitz.open(caminho_pdf) as doc:
+                if len(doc) == 0:
+                    return None
+                indice = max(0, min(int(indice), len(doc) - 1))
+                pagina = doc.load_page(indice)
+                crop_original = fitz.Rect(pagina.cropbox)
                 try:
-                    pagina.set_cropbox(pagina.mediabox)
-                except Exception:
-                    pass
-                pix = pagina.get_pixmap(dpi=dpi, colorspace=fitz.csRGB, alpha=False)
-            finally:
-                try:
-                    pagina.set_cropbox(crop_original)
-                except Exception:
-                    pass
-            return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+                    try:
+                        pagina.set_cropbox(pagina.mediabox)
+                    except Exception:
+                        pass
+                    pix = pagina.get_pixmap(dpi=dpi, colorspace=fitz.csRGB, alpha=False)
+                finally:
+                    try:
+                        pagina.set_cropbox(crop_original)
+                    except Exception:
+                        pass
+                return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+        except Exception as e:
+            log_erro(f"Erro ao renderizar preview da página {indice} de '{caminho_pdf}'", e)
+            return None
 
     def _renderizar_pagina_scanner(self, geracao=None):
         """Renderiza o preview no Canvas com ImageTk.PhotoImage.
@@ -602,7 +613,55 @@ class TelaInicio(ctk.CTkFrame):
         self.total_paginas = 0
         self.pagina_atual = 0
 
-    def iniciar_scanner(self, imagem_grande, texto_nome):
+    def iniciar_scanner_conversao(self, caminho_pdf):
+        """Prepara e ativa a animação do scanner no início do processo de conversão em lote."""
+        try:
+            self.modo_visualizacao = False
+            self.caminho_pdf_atual = caminho_pdf
+            self.pagina_atual = 0
+            with fitz.open(caminho_pdf) as doc:
+                self.total_paginas = len(doc)
+
+            img_pil = self._renderizar_pagina_completa_por_caminho(caminho_pdf, 0, dpi=110)
+            nome = pathlib.Path(caminho_pdf).name
+            if img_pil:
+                largura_frame = max(240, self.folha_scanner.winfo_width() - 20)
+                altura_frame = min(430, max(300, self.folha_scanner.winfo_height() - 20))
+                escala = min(largura_frame / img_pil.width, altura_frame / img_pil.height, 1.0)
+                novo_tam = (max(1, int(img_pil.width * escala)), max(1, int(img_pil.height * escala)))
+                img_resized = img_pil.resize(novo_tam, Image.Resampling.BILINEAR)
+                ctk_img = ctk.CTkImage(light_image=img_resized, dark_image=img_resized, size=novo_tam)
+                self.iniciar_scanner(ctk_img, nome, status_badge=f"⚡ INICIANDO PROCESSAMENTO (PÁG. 1 DE {self.total_paginas})...")
+            else:
+                self.iniciar_scanner(None, nome, status_badge="⚡ INICIANDO PROCESSAMENTO VISUAL...")
+        except Exception:
+            nome = pathlib.Path(caminho_pdf).name if caminho_pdf else "PDF"
+            self.iniciar_scanner(None, nome)
+
+    def atualizar_pagina_scanner(self, caminho_pdf, pagina_idx, status_msg=""):
+        """Renderiza a página atual que está sendo analisada e atualiza o scanner visual em tempo real."""
+        try:
+            nome_arquivo = pathlib.Path(caminho_pdf).name
+            img_pil = self._renderizar_pagina_completa_por_caminho(caminho_pdf, pagina_idx, dpi=110)
+            if img_pil is not None:
+                largura_frame = max(240, self.folha_scanner.winfo_width() - 20)
+                altura_frame = min(430, max(300, self.folha_scanner.winfo_height() - 20))
+                escala = min(largura_frame / img_pil.width, altura_frame / img_pil.height, 1.0)
+                novo_tam = (max(1, int(img_pil.width * escala)), max(1, int(img_pil.height * escala)))
+                img_resized = img_pil.resize(novo_tam, Image.Resampling.BILINEAR)
+                ctk_img = ctk.CTkImage(light_image=img_resized, dark_image=img_resized, size=novo_tam)
+
+                tot_str = str(self.total_paginas) if self.total_paginas else "?"
+                diag = f"⚡ PÁGINA {pagina_idx + 1} DE {tot_str}"
+                if "(" in status_msg and ")" in status_msg:
+                    detalhe = status_msg.split("(")[-1].rstrip(")")
+                    diag = f"⚡ PÁG. {pagina_idx + 1} DE {tot_str} • {detalhe.upper()}"
+
+                self.atualizar_imagem_scanner(ctk_img, f"{nome_arquivo} (Pág {pagina_idx + 1})", status_badge=diag)
+        except Exception as e:
+            log_erro(f"Erro ao atualizar página {pagina_idx} no scanner visual", e)
+
+    def iniciar_scanner(self, imagem_grande, texto_nome, status_badge="⚡ ANALISANDO PÁGINA..."):
         self.modo_visualizacao = False
         self._cancelar_render_preview()
         self.frame_galeria.grid_remove()
@@ -611,9 +670,12 @@ class TelaInicio(ctk.CTkFrame):
         self.lbl_img_scanner.grid()
         self.btn_voltar_preview.grid_remove()
         self.btn_abrir_externo.grid_remove()
-        self.lbl_preview_scanner.configure(text="Scanner / processamento")
+        self.lbl_preview_scanner.configure(text="Scanner / Processamento Visual")
         self._definir_imagem_scanner(imagem_grande)
         self.lbl_nome_scanner.configure(text=f"Escaneando: {texto_nome}")
+        self.lbl_badge_diagnostico.configure(text=status_badge)
+        self.lbl_badge_diagnostico.place(relx=0.03, rely=0.03)
+        self.lbl_badge_diagnostico.lift()
         self.animando = True
         self.pos_y = 0.02
         self.direcao = 1
@@ -621,13 +683,17 @@ class TelaInicio(ctk.CTkFrame):
         self.linha_scanner.lift()
         self.animar_scanner()
 
-    def atualizar_imagem_scanner(self, imagem_grande, texto_nome):
+    def atualizar_imagem_scanner(self, imagem_grande, texto_nome, status_badge=None):
         self._definir_imagem_scanner(imagem_grande)
         self.lbl_nome_scanner.configure(text=f"Escaneando: {texto_nome}")
+        if status_badge:
+            self.lbl_badge_diagnostico.configure(text=status_badge)
+            self.lbl_badge_diagnostico.lift()
 
     def parar_scanner(self):
         self.animando = False
         self.linha_scanner.place_forget()
+        self.lbl_badge_diagnostico.place_forget()
         self.frame_scanner.grid_remove()
         self.frame_galeria.grid()
         self._limpar_imagem_scanner(ocultar=True)
@@ -636,14 +702,14 @@ class TelaInicio(ctk.CTkFrame):
     def animar_scanner(self):
         if not self.animando:
             return
-        self.pos_y += 0.02 * self.direcao
-        if self.pos_y >= 0.98:
+        self.pos_y += 0.022 * self.direcao
+        if self.pos_y >= 0.96:
             self.direcao = -1
         elif self.pos_y <= 0.02:
             self.direcao = 1
         self.linha_scanner.place(rely=self.pos_y)
         self.linha_scanner.lift()
-        self.after(30, self.animar_scanner)
+        self.after(35, self.animar_scanner)
 
     def carregar_preview(self, caminho_pdf):
         self.abrir_visualizacao_pdf(caminho_pdf)
@@ -752,8 +818,42 @@ class TelaConfigs(ctk.CTkFrame):
         self.opt_tema.grid(row=1, column=1, padx=16, pady=(5, 16), sticky="e")
         from core.configuracao import config_app
         self.opt_tema.set(config_app.get("tema") or "Dark")
+        # --- SEÇÃO INTELIGÊNCIA ARTIFICIAL (DEEPSEEK) ---
+        frame_ai = ctk.CTkFrame(self, fg_color=PANEL, corner_radius=12, border_width=1, border_color=BORDER)
+        frame_ai.grid(row=2, column=0, sticky="ew", pady=10)
+        frame_ai.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(frame_ai, text="🤖 Inteligência Artificial (DeepSeek API)", font=ctk.CTkFont(size=15, weight="bold"), text_color=TEXT).grid(row=0, column=0, columnspan=2, padx=16, pady=(16, 6), sticky="w")
+        ctk.CTkLabel(frame_ai, text="Refina páginas de OCR com falhas de leitura ou sujeiras do scanner via IA.", text_color=MUTED).grid(row=1, column=0, columnspan=2, padx=16, pady=(0, 8), sticky="w")
+
+        self.sw_deepseek = ctk.CTkSwitch(
+            frame_ai, text="Ativar refinamento de OCR por IA (DeepSeek)",
+            command=self._ao_alternar_deepseek
+        )
+        self.sw_deepseek.grid(row=2, column=0, columnspan=2, padx=16, pady=(4, 10), sticky="w")
+
+        ctk.CTkLabel(frame_ai, text="Chave de API (DeepSeek Key):", text_color=TEXT).grid(row=3, column=0, padx=16, pady=6, sticky="w")
+        self.entry_api_key = ctk.CTkEntry(
+            frame_ai, placeholder_text="sk-...", show="*", width=320, height=34
+        )
+        self.entry_api_key.grid(row=3, column=1, padx=16, pady=6, sticky="e")
+
+        from core.configuracao import config_app
+        key_salva = config_app.get("deepseek_api_key") or ""
+        if key_salva:
+            self.entry_api_key.insert(0, key_salva)
+
+        if bool(config_app.get("usar_deepseek")):
+            self.sw_deepseek.select()
+
+        self.btn_salvar_key = ctk.CTkButton(
+            frame_ai, text="Salvar Chave API", height=32, width=140,
+            fg_color=BLUE, hover_color=BLUE_HOVER, command=self._salvar_chave_deepseek
+        )
+        self.btn_salvar_key.grid(row=4, column=1, padx=16, pady=(4, 16), sticky="e")
+
         frame_dados = ctk.CTkFrame(self, fg_color=PANEL, corner_radius=12, border_width=1, border_color=BORDER)
-        frame_dados.grid(row=2, column=0, sticky="ew", pady=10)
+        frame_dados.grid(row=3, column=0, sticky="ew", pady=10)
         ctk.CTkLabel(frame_dados, text="Dados do Aplicativo", font=ctk.CTkFont(size=15, weight="bold"), text_color=TEXT).grid(row=0, column=0, padx=16, pady=(16, 6), sticky="w")
         ctk.CTkLabel(frame_dados, text="Isso apagará o histórico de 'Meus Projetos', mas não excluirá os arquivos reais.", text_color=MUTED).grid(row=1, column=0, padx=16, pady=(0, 12), sticky="w")
         ctk.CTkButton(frame_dados, text="Apagar Todo o Histórico", fg_color="#b91c1c", hover_color="#991b1b", height=36, font=ctk.CTkFont(weight="bold"), command=comando_limpar_historico).grid(row=2, column=0, padx=16, pady=(0, 16), sticky="w")
@@ -767,6 +867,17 @@ class TelaConfigs(ctk.CTkFrame):
         self.sw_compat.grid(row=2, column=0, padx=16, pady=(0, 16), sticky="w")
         if bool(config_app.get("modo_compatibilidade")):
             self.sw_compat.select()
+
+    def _ao_alternar_deepseek(self):
+        from core.configuracao import config_app
+        config_app.set("usar_deepseek", bool(self.sw_deepseek.get()))
+
+    def _salvar_chave_deepseek(self):
+        from core.configuracao import config_app
+        from tkinter import messagebox
+        chave = self.entry_api_key.get().strip()
+        config_app.set("deepseek_api_key", chave)
+        messagebox.showinfo("Sucesso", "Chave de API do DeepSeek salva com sucesso!")
 
 class TelaDiagnostico(ctk.CTkFrame):
     def __init__(self, master, comando_atualizar, comando_copiar, comando_abrir_logs):

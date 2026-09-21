@@ -1,10 +1,11 @@
 import shutil
 import subprocess
 import sys
+import threading
 from multiprocessing import freeze_support
 
 Atualizador = None
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.2.0"
 
 def checar_dependencias():
     """Verifica dependências e tenta instalá-las de forma compatível com ambientes uv."""
@@ -188,6 +189,36 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
 
         import threading
         threading.Thread(target=_worker, daemon=True).start()
+        self.after(1200, self._checar_limpeza_startup)
+
+    def _checar_limpeza_startup(self):
+        """Verifica se há arquivos temporários e logs antigos (> 5MB) e solicita autorização do usuário."""
+        try:
+            from core.utils import calcular_tamanho_limpeza_temporarios, executar_limpeza_temporarios
+            tamanho_bytes, arquivos = calcular_tamanho_limpeza_temporarios()
+            tamanho_mb = tamanho_bytes / (1024 * 1024)
+            if tamanho_mb >= 5.0 and arquivos:
+                resposta = messagebox.askyesno(
+                    "Limpeza de Arquivos Temporários",
+                    f"Foram encontrados {tamanho_mb:.1f} MB em arquivos temporários e logs antigos em disco.\n\n"
+                    f"Deseja realizar a limpeza agora para liberar espaço e manter o aplicativo leve?",
+                    parent=self,
+                )
+                if resposta:
+                    def _limpar():
+                        liberados_bytes = executar_limpeza_temporarios(arquivos)
+                        liberados_mb = liberados_bytes / (1024 * 1024)
+                        log_info(f"Limpeza de inicialização concluída: {liberados_mb:.1f} MB liberados.")
+                        try:
+                            self.after(0, lambda: self.tela_inicio.lbl_status.configure(
+                                text=f"🧹 Limpeza efetuada com sucesso ({liberados_mb:.1f} MB liberados).",
+                                text_color="#10b981"
+                            ))
+                        except Exception:
+                            pass
+                    threading.Thread(target=_limpar, daemon=True).start()
+        except Exception as e:
+            log_aviso(f"Falha na checagem de limpeza inicial: {e}")
 
     def criar_barra_lateral(self):
         self.sidebar = ctk.CTkFrame(self, width=190, corner_radius=0, fg_color="#0b1118", border_width=0)
@@ -311,9 +342,9 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
         for caminho in para_adicionar:
             self._status_arquivos[str(caminho)] = "aguardando"
         self.atualizar_interface_arquivos()
-        # O preview visual só é aberto quando o usuário clica em um PDF.
-        # A grade permanece como tela de seleção.
-        self.tela_inicio.limpar_preview()
+        if para_adicionar:
+            # Renderiza imediatamente a pré-visualização do PDF recém-adicionado
+            self.tela_inicio.abrir_visualizacao_pdf(para_adicionar[0])
 
     def remover_arquivo(self, caminho):
         if caminho in self.arquivos_selecionados:
@@ -346,6 +377,10 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
                     pass
             img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
             doc.close()
+            # Mantém no máximo 30 páginas no cache para economizar memória RAM
+            if len(self._preview_cache) > 30:
+                primeira_chave = next(iter(self._preview_cache))
+                self._preview_cache.pop(primeira_chave, None)
             self._preview_cache[chave_cache] = img
             return img
         except Exception:
@@ -645,16 +680,12 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
 
         self.indice_arquivo_atual = -1
         self.indice_pagina_atual = -1
+        self._indice_arquivo_exibido = -1
+        self._indice_pagina_exibida = -1
 
-        # O scanner é apenas feedback visual. Se ele falhar, a conversão continua.
+        # Prepara e inicia o scanner visual com dimensões corretas
         try:
-            img_pil = self.gerar_preview_imagem(arquivos_lote[0], num_pagina=0)
-            if img_pil:
-                img_scan = img_pil.copy()
-                img_scan.thumbnail((700, 820), Image.Resampling.LANCZOS)
-                img_grande = ctk.CTkImage(light_image=img_scan, dark_image=img_scan, size=img_scan.size)
-                nome_arq = pathlib.Path(arquivos_lote[0]).name
-                self.tela_inicio.iniciar_scanner(img_grande, f"{nome_arq}")
+            self.tela_inicio.iniciar_scanner_conversao(arquivos_lote[0])
         except Exception as e:
             log_aviso(f"Falha apenas no preview do scanner ao iniciar conversão: {type(e).__name__}: {e}")
 
@@ -704,8 +735,8 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
                 arquivos=arquivos_lote,
                 pasta_destino=self.pasta_destino,
                 usar_ocr=usar_ocr,
-                cb_progresso=lambda status, pct, texto, g=geracao: self.after(
-                    0, lambda: self._progresso_se_atual(g, status, pct, texto)
+                cb_progresso=lambda status, pct, texto, caminho_pdf=None, pagina_idx=None, g=geracao, *args, **kwargs: self.after(
+                    0, lambda: self._progresso_se_atual(g, status, pct, texto, caminho_pdf, pagina_idx)
                 ),
                 cb_concluido=lambda resumo=None, g=geracao: self.after(
                     0, lambda: self._concluido_se_atual(g, resumo)
@@ -736,9 +767,9 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
         self.tela_inicio.btn_cancelar.grid_remove()
         self.tela_inicio.btn_cancelar.configure(state="normal", text="❌ Cancelar")
 
-    def _progresso_se_atual(self, geracao, status, pct, texto):
+    def _progresso_se_atual(self, geracao, status, pct, texto, caminho_pdf=None, pagina_idx=None):
         if geracao == self._conversao_generation and self.motor_conversao is not None:
-            self.atualizar_progresso(status, pct, texto)
+            self.atualizar_progresso(status, pct, texto, caminho_pdf, pagina_idx)
 
     def _concluido_se_atual(self, geracao, resumo):
         if geracao == self._conversao_generation:
@@ -798,30 +829,30 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
             self.tela_inicio.btn_cancelar.configure(state="disabled", text="Cancelando...")
             self.motor_conversao.solicitar_cancelamento()
 
-    def atualizar_progresso(self, status_msg, porcentagem, texto_novo):
+    def atualizar_progresso(self, status_msg, porcentagem, texto_novo, caminho_pdf=None, pagina_idx=None):
         self.tela_inicio.lbl_status.configure(text=status_msg, text_color=("black", "white"))
         self.tela_inicio.progressbar.set(porcentagem)
-        
+
+        idx_arquivo = 0
+        idx_pagina = 0
+        if pagina_idx is not None:
+            idx_pagina = int(pagina_idx)
+
         match = re.search(r"Arquivo (\d+)/.*?Página (\d+)", status_msg)
         if match:
             idx_arquivo = int(match.group(1)) - 1
-            idx_pagina = int(match.group(2)) - 1
-            
-            if idx_arquivo != self.indice_arquivo_atual or idx_pagina != self.indice_pagina_atual:
-                self.indice_arquivo_atual = idx_arquivo
-                self.indice_pagina_atual = idx_pagina
-                
-                arquivos_exibicao = self._arquivos_lote_atual or self.arquivos_selecionados
-                if idx_arquivo < len(arquivos_exibicao):
-                    caminho_atual = arquivos_exibicao[idx_arquivo]
-                    img_pil = self.gerar_preview_imagem(caminho_atual, num_pagina=idx_pagina)
-                    
-                    if img_pil:
-                        img_scan = img_pil.copy()
-                        img_scan.thumbnail((700, 820), Image.Resampling.LANCZOS)
-                        img_grande = ctk.CTkImage(light_image=img_scan, dark_image=img_scan, size=img_scan.size)
-                        nome_arq = pathlib.Path(caminho_atual).name
-                        self.tela_inicio.atualizar_imagem_scanner(img_grande, f"{nome_arq} (Pág {idx_pagina+1})")
+            if pagina_idx is None:
+                idx_pagina = int(match.group(2)) - 1
+
+        arquivos_exibicao = self._arquivos_lote_atual or self.arquivos_selecionados
+        caminho_atual = caminho_pdf or (arquivos_exibicao[idx_arquivo] if 0 <= idx_arquivo < len(arquivos_exibicao) else None)
+
+        if caminho_atual and (idx_arquivo != getattr(self, "_indice_arquivo_exibido", -1) or idx_pagina != getattr(self, "_indice_pagina_exibida", -1)):
+            self.indice_arquivo_atual = idx_arquivo
+            self.indice_pagina_atual = idx_pagina
+            self._indice_arquivo_exibido = idx_arquivo
+            self._indice_pagina_exibida = idx_pagina
+            self.tela_inicio.atualizar_pagina_scanner(caminho_atual, idx_pagina, status_msg)
 
         if texto_novo:
             self.tela_inicio.textbox_preview.configure(state="normal")
@@ -835,6 +866,11 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
         self._arquivos_lote_atual = []
         self.indice_arquivo_atual = -1
         self.indice_pagina_atual = -1
+        self._indice_arquivo_exibido = -1
+        self._indice_pagina_exibida = -1
+
+        import gc
+        gc.collect()
 
         self.tela_inicio.progressbar.set(1)
         self.tela_inicio.btn_converter.configure(state="normal")

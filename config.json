@@ -12,5 +12,8 @@
     "imagem_ref_min_area_ratio": 0.04,
     "modo_compatibilidade": false,
     "gerar_manifesto_conversao": true,
-    "modo_conversao": "Texto Nativo + Referência de Imagem (Sem OCR)"
+    "usar_deepseek": true,
+    "deepseek_api_key": "sk-992c54bb08d2436ebd9effdbe4fa8673",
+    "limiar_qualidade_ocr": 0.8,
+    "modo_conversao": "Forçar OCR (Ignora Texto Nativo)"
 }

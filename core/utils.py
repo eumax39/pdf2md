@@ -109,3 +109,60 @@ def log_erro(mensagem, excecao=None):
 
 def caminho_log_atual():
     return get_logs_dir() / "pdf2md.log"
+
+
+def calcular_tamanho_limpeza_temporarios():
+    """Calcula o tamanho total em bytes de arquivos temporários e logs antigos (> 7 dias)."""
+    import time
+    total_bytes = 0
+    arquivos_para_remover = []
+    agora = time.time()
+    limite_idade = 7 * 86400  # 7 dias
+
+    pastas_temp = [
+        get_data_root() / "temp",
+        pathlib.Path.home() / ".paddlex" / "temp",
+        pathlib.Path(tempfile.gettempdir()) / "PDF2MD",
+    ]
+
+    for pasta in pastas_temp:
+        if pasta.exists():
+            for item in pasta.rglob("*"):
+                if item.is_file():
+                    try:
+                        sz = item.stat().st_size
+                        total_bytes += sz
+                        arquivos_para_remover.append(item)
+                    except Exception:
+                        pass
+
+    pasta_logs = get_logs_dir()
+    if pasta_logs.exists():
+        for item in pasta_logs.glob("*.log.*"):
+            if item.is_file():
+                try:
+                    if (agora - item.stat().st_mtime) > limite_idade:
+                        sz = item.stat().st_size
+                        total_bytes += sz
+                        arquivos_para_remover.append(item)
+                except Exception:
+                    pass
+
+    return total_bytes, arquivos_para_remover
+
+
+def executar_limpeza_temporarios(arquivos=None):
+    """Executa a remoção segura de arquivos temporários e logs desatualizados."""
+    if arquivos is None:
+        _, arquivos = calcular_tamanho_limpeza_temporarios()
+
+    liberados = 0
+    for arq in arquivos:
+        try:
+            sz = arq.stat().st_size
+            arq.unlink(missing_ok=True)
+            liberados += sz
+        except Exception:
+            pass
+
+    return liberados

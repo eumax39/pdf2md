@@ -8,12 +8,18 @@ from PIL import Image
 
 from core.configuracao import config_app
 from core.utils import log_erro
+from ocr.detector import DetectorVisual
 
 class PDFReader:
     def __init__(self, caminho_pdf):
         self.caminho_pdf = caminho_pdf
         self.doc = fitz.open(caminho_pdf)
         self.total_paginas = len(self.doc)
+        self.detector_visual = DetectorVisual()
+        try:
+            self.detector_visual.indexar_documento(self.doc)
+        except Exception as e:
+            log_erro("Falha ao indexar documento no detector visual", e)
 
     def pagina_tem_texto_nativo(self, numero_pagina, limite_caracteres_uteis=20):
         try:
@@ -182,7 +188,7 @@ class PDFReader:
             return False
 
     def extrair_imagens_relevantes(self, numero_pagina):
-        """Extrai imagens relevantes da página, ignorando logos/QRs pequenos de cabeçalho/rodapé."""
+        """Extrai imagens relevantes da página, ignorando logos/QRs/marcas d'água de modelos/timbrados."""
         try:
             pagina = self.doc.load_page(numero_pagina)
             dados = pagina.get_text("dict") or {}
@@ -200,9 +206,6 @@ class PDFReader:
                 if not bbox or len(bbox) != 4:
                     continue
 
-                if self._eh_imagem_irrelevante(bbox, largura_pagina, altura_pagina):
-                    continue
-
                 imagem_bytes = bloco.get("image")
                 if not imagem_bytes:
                     xref = bloco.get("xref")
@@ -216,16 +219,14 @@ class PDFReader:
                 if not imagem_bytes:
                     continue
 
-                # Valida se o conteúdo é imagem legível.
-                try:
-                    with Image.open(io.BytesIO(imagem_bytes)) as img:
-                        largura_img, altura_img = img.size
-                    if largura_img < 180 or altura_img < 180:
-                        continue
-                except Exception:
+                # Validações primárias legadas de salvaguarda
+                if self._eh_imagem_irrelevante(bbox, largura_pagina, altura_pagina):
                     continue
 
-                if self._imagem_parece_template(imagem_bytes, bbox, largura_pagina, altura_pagina):
+                # Validação avançada via DetectorVisual (fingerprint, marca d'água, zoneamento e entropia)
+                if not self.detector_visual.eh_imagem_relevante(
+                    imagem_bytes, bbox, largura_pagina, altura_pagina, numero_pagina
+                ):
                     continue
 
                 imagens.append({"bytes": imagem_bytes, "bbox": bbox})
@@ -238,29 +239,15 @@ class PDFReader:
     def extrair_imagem_da_pagina(self, numero_pagina, dpi_override=None):
         try:
             pagina = self.doc.load_page(numero_pagina)
-            if dpi_override is not None:
-                dpi = int(dpi_override)
-            else:
-                dpi = int(config_app.get("dpi_leitura") or 120)
-
+            dpi = int(dpi_override) if dpi_override is not None else int(config_app.get("dpi_leitura") or 120)
             dpi = max(90, min(300, dpi))
-            pix = pagina.get_pixmap(dpi=dpi)
+            pix = pagina.get_pixmap(dpi=dpi, colorspace=fitz.csRGB, alpha=False)
 
-            if pix.width == 0 or pix.height == 0:
+            if pix.width == 0 or pix.height == 0 or not pix.samples:
                 return None
 
-            modo = "RGBA" if pix.alpha else "RGB"
-            img = Image.frombytes(modo, [pix.width, pix.height], pix.samples)
-
-            if modo == "RGBA":
-                img = img.convert("RGB")
-
-            img_array = np.array(img)
-            if img_array.size == 0:
-                return None
-
+            img_array = np.frombuffer(pix.samples, dtype=np.uint8).reshape((pix.height, pix.width, 3))
             return img_array
-
         except Exception as e:
             log_erro(f"Erro ao converter página {numero_pagina} em imagem", e)
             return None

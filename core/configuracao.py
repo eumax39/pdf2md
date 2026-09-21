@@ -36,7 +36,10 @@ class Configuracao:
             "ocr_dpi_timeout_retry": 110,
             "imagem_ref_min_area_ratio": 0.04,
             "modo_compatibilidade": False,
-            "gerar_manifesto_conversao": True
+            "gerar_manifesto_conversao": True,
+            "usar_deepseek": True,
+            "deepseek_api_key": "sk-992c54bb08d2436ebd9effdbe4fa8673",
+            "limiar_qualidade_ocr": 0.80
         }
         self.carregar()
 

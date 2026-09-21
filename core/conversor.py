@@ -16,6 +16,9 @@ from core.historico import historico_app
 from core.utils import log_erro, log_info, log_aviso
 from ocr.manager import ocr_engine
 from core.configuracao import config_app
+from core.avaliador_qualidade import AvaliadorQualidadeTexto
+from core.deepseek import ClienteDeepSeek
+from core.normalizador import NormalizadorTextoJuridico
 
 MODO_HIBRIDO = "Híbrido (Texto Nativo + OCR em Imagem Relevante)"
 MODO_HIBRIDO_ANTIGO = "Híbrido (Automático)"
@@ -56,6 +59,10 @@ class MotorConversao:
         self.cancelar = False
         self._qtd_alertas_ocr = 0
         self._paginas_alerta_ocr = []
+        limiar_config = float(config_app.get("limiar_qualidade_ocr") or 0.80)
+        self.avaliador_qualidade = AvaliadorQualidadeTexto(limiar_padrao=limiar_config)
+        self.cliente_deepseek = ClienteDeepSeek()
+        self.normalizador = NormalizadorTextoJuridico()
 
 
     def _status_arquivo(self, indice, status, detalhe=""):
@@ -343,7 +350,7 @@ class MotorConversao:
                 escritor = None if gerar_pdf_ocr else MarkdownWriter(caminho_saida_md)
                 doc_referencias = fitz.open() if modo_referencia_imagem else None
 
-                if self.usar_ocr and not modo_referencia_imagem:
+                if self.usar_ocr and modo_atual == MODO_FORCAR_OCR:
                     ocr_engine.preaquecer_worker()
 
                 fila_paginas = queue.Queue(maxsize=1 if bool(config_app.get("modo_compatibilidade")) else 2)
@@ -381,6 +388,12 @@ class MotorConversao:
                     texto_extraido = ""
                     status_msg = status_base
                     texto_ocr_limpo = ""
+
+                    # Notifica a interface no início da leitura de cada página para sincronizar o scanner visual
+                    try:
+                        self.cb_progresso(status_base, porcentagem, None, caminho_pdf, i)
+                    except Exception:
+                        pass
 
                     try:
                         if modo_referencia_imagem:
@@ -489,6 +502,20 @@ class MotorConversao:
                     elif tem_texto_util:
                         self._stats["paginas_texto_nativo"] += 1
 
+                    # Refinamento opcional via DeepSeek apenas em páginas que passaram por OCR e com qualidade inferior a 80%
+                    usar_ds = bool(config_app.get("usar_deepseek")) and bool(config_app.get("deepseek_api_key"))
+                    if usar_ds and precisa_ocr and texto_extraido and not texto_extraido.startswith("> [Erro"):
+                        limiar = float(config_app.get("limiar_qualidade_ocr") or 0.80)
+                        if not self.avaliador_qualidade.eh_texto_de_alta_qualidade(texto_extraido, limiar=limiar):
+                            score_atual = self.avaliador_qualidade.calcular_score(texto_extraido)
+                            log_info(f"Página {i+1}: Score de qualidade {int(score_atual*100)}% (< {int(limiar*100)}%). Refinando com DeepSeek API...")
+                            texto_ds = self.cliente_deepseek.refinar_texto_ocr(texto_extraido, numero_pagina=i+1)
+                            if texto_ds and texto_ds.strip():
+                                texto_extraido = texto_ds
+
+                    # Normalização e higienização jurídica do texto (preserva IDs de PJe, des-hifena e padroniza cabeçalhos)
+                    texto_extraido = self.normalizador.normalizar_pagina(texto_extraido)
+
                     if gerar_pdf_ocr:
                         img_para_pdf = img_bgr
                         if img_para_pdf is None:
@@ -503,7 +530,7 @@ class MotorConversao:
                         escritor.escrever_pagina(texto_extraido)
 
                     if texto_extraido.strip():
-                        self.cb_progresso(status_msg, porcentagem, texto_extraido)
+                        self.cb_progresso(status_msg, porcentagem, texto_extraido, caminho_pdf, i)
 
                 produtor.join(timeout=1.0)
 

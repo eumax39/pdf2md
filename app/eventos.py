@@ -51,7 +51,7 @@ class GerenciadorEventos:
         if not self.app.arquivos_selecionados: return
 
         tela = self.app.tela_inicio
-        # 1. Prepara a tela (Desativa botões, liga barra de progresso)
+        # 1. Prepara a tela (Desativa botões, liga barra de progresso e inicia scanner animado)
         tela.btn_converter.configure(state="disabled")
         tela.btn_cancelar.grid()
         tela.btn_cancelar.configure(state="normal", text="❌ Cancelar")
@@ -59,6 +59,9 @@ class GerenciadorEventos:
         tela.textbox_preview.configure(state="normal")
         tela.textbox_preview.delete("0.0", "end")
         tela.textbox_preview.configure(state="disabled")
+
+        if self.app.arquivos_selecionados:
+            tela.iniciar_scanner_conversao(self.app.arquivos_selecionados[0])
 
         # 2. Pega o modo de conversão selecionado na interface
         modo_selecionado = self.app.tela_inicio.opt_modo.get()
@@ -86,13 +89,16 @@ class GerenciadorEventos:
     # CALLBACKS (Recebem sinais da Thread do Backend e mandam para a Tela)
     # Sempre usamos self.app.after() para não explodir a interface visual
     # =====================================================================
-    def cb_progresso(self, msg, porcentagem, texto_extraido):
-        self.app.after(0, self._atualizar_ui_progresso, msg, porcentagem, texto_extraido)
+    def cb_progresso(self, msg, porcentagem, texto_extraido, caminho_pdf=None, pagina_idx=None):
+        self.app.after(0, self._atualizar_ui_progresso, msg, porcentagem, texto_extraido, caminho_pdf, pagina_idx)
 
-    def _atualizar_ui_progresso(self, msg, porcentagem, texto_extraido):
+    def _atualizar_ui_progresso(self, msg, porcentagem, texto_extraido, caminho_pdf=None, pagina_idx=None):
         tela = self.app.tela_inicio
         tela.lbl_status.configure(text=msg, text_color=("black", "white"))
         tela.progressbar.set(porcentagem)
+
+        if caminho_pdf is not None and pagina_idx is not None:
+            tela.atualizar_pagina_scanner(caminho_pdf, pagina_idx, msg)
         
         if texto_extraido.strip():
             # Mostra no máximo os últimos pedaços para não travar a textbox
@@ -101,7 +107,7 @@ class GerenciadorEventos:
             tela.textbox_preview.see("end")
             tela.textbox_preview.configure(state="disabled")
 
-    def cb_concluido(self):
+    def cb_concluido(self, resumo=None):
         self.app.after(0, self._finalizar_ui, "✅ Concluído com Sucesso!", "green")
         self.app.after(0, lambda: messagebox.showinfo("Sucesso", "A conversão foi finalizada!"))
 
@@ -115,7 +121,9 @@ class GerenciadorEventos:
 
     def _finalizar_ui(self, msg_status, cor):
         tela = self.app.tela_inicio
+        tela.parar_scanner()
         tela.lbl_status.configure(text=msg_status, text_color=cor)
         tela.progressbar.set(1)
         tela.btn_converter.configure(state="normal")
+        tela.btn_cancelar.grid_remove()
         tela.btn_cancelar.grid_remove()
