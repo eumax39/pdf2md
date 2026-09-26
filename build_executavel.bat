@@ -2,7 +2,7 @@
 setlocal
 
 REM =====================================================
-REM Build manual do PDF2MD_V2 (PyInstaller + ZIP)
+REM Build manual do PDF2MD_V2 (PyInstaller)
 REM =====================================================
 
 set "PROJECT_DIR=%~dp0"
@@ -37,7 +37,7 @@ if exist dist (
 )
 
 echo.
-echo [3/7] Atualizando instalador de pacotes...
+echo [3/6] Atualizando instalador de pacotes...
 "%PYTHON_EXE%" -m pip install -U pip
 if errorlevel 1 (
   echo ERRO: Falha ao atualizar pip.
@@ -45,7 +45,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo [4/7] Instalando dependencias do projeto (inclui PaddleX OCR)...
+echo [4/6] Instalando dependencias do projeto (inclui PaddleX OCR)...
 "%PYTHON_EXE%" -m pip install -r requirements.txt
 if errorlevel 1 (
   echo ERRO: Falha ao instalar dependencias do requirements.txt.
@@ -53,7 +53,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo [5/8] Validando OCR no ambiente de build...
+echo [5/6] Validando OCR no ambiente de build...
 "%PYTHON_EXE%" -c "from ocr.manager import ocr_engine; ocr_engine.inicializar_se_necessario(); import sys; sys.exit(0 if ocr_engine.motor != 'ERRO' else 1)"
 if errorlevel 1 (
   echo ERRO: OCR nao inicializou no ambiente de build.
@@ -62,7 +62,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo [6/8] Gerando executavel...
+echo [6/6] Gerando executavel...
 "%PYTHON_EXE%" -m PyInstaller --clean --noconfirm "%SPEC_FILE%"
 if errorlevel 1 (
   echo ERRO: Build falhou.
@@ -70,23 +70,9 @@ if errorlevel 1 (
 )
 
 echo.
-echo [7/8] Compactando pacote portable...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Set-Location '%PROJECT_DIR%\dist'; if (Test-Path '.\PDF2MD_V2_portable.zip') { Remove-Item -Force '.\PDF2MD_V2_portable.zip' }; Compress-Archive -Path '.\PDF2MD_V2' -DestinationPath '.\PDF2MD_V2_portable.zip' -CompressionLevel Optimal -ErrorAction Stop; if (-not (Test-Path '.\PDF2MD_V2_portable.zip')) { throw 'ZIP nao foi criado.' }; exit 0 } catch { Write-Host ('ERRO ao compactar ZIP: ' + $_.Exception.Message); exit 1 }"
-if errorlevel 1 (
-  echo AVISO: Executavel gerado, mas nao foi possivel criar o ZIP.
-  echo Feche o app PDF2MD_V2.exe, antivirus/indexador que esteja usando arquivos da pasta dist e rode novamente para gerar o ZIP.
-  goto :show_paths
-)
-
-:show_paths
-echo.
-echo [8/8] Concluido.
+echo Concluido com sucesso.
 echo Executavel: %PROJECT_DIR%dist\PDF2MD_V2\PDF2MD_V2.exe
 echo Pasta completa: %PROJECT_DIR%dist\PDF2MD_V2
-echo ZIP portable: %PROJECT_DIR%dist\PDF2MD_V2_portable.zip
-echo.
-echo IMPORTANTE: para outro computador, envie a pasta inteira
-echo dist\PDF2MD_V2 (ou o ZIP gerado), nunca apenas o .exe.
 echo.
 pause
 endlocal

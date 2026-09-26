@@ -38,7 +38,7 @@ class Configuracao:
             "modo_compatibilidade": False,
             "gerar_manifesto_conversao": True,
             "usar_deepseek": True,
-            "deepseek_api_key": "sk-992c54bb08d2436ebd9effdbe4fa8673",
+            "deepseek_api_key": "",
             "limiar_qualidade_ocr": 0.80
         }
         self.carregar()

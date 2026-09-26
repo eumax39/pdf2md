@@ -72,17 +72,20 @@ def compilar_inno_setup(versao):
         if res.returncode == 0:
             print("✅ Instalador PDF2MD_Setup.exe gerado com sucesso em dist/")
             return True
+        else:
+            print("❌ Falha na compilação do Inno Setup.")
+            return False
 
-    print("⚠️ ISCC.exe não encontrado em caminhos padrão. Gerando pacote ZIP portable...")
-    cmd_zip = f"Compress-Archive -Path '{DIST_DIR}\\PDF2MD_V2' -DestinationPath '{DIST_DIR}\\PDF2MD_V2_portable.zip' -Force"
-    subprocess.run(["powershell", "-NoProfile", "-Command", cmd_zip], cwd=str(PROJECT_DIR))
-    print("✅ ZIP portable gerado em dist/PDF2MD_V2_portable.zip")
+    print("⚠️ ISCC.exe não encontrado em caminhos padrão. O instalador PDF2MD_Setup.exe não pôde ser gerado.")
     return False
 
 
 def enviar_git(versao, notas=""):
     print("\n🐙 [3/4] Atualizando o repositório Git e enviando Tag...")
+    # Garante que o config.json (com chave local) seja desindexado e ignorado pelo Git
+    subprocess.run(["git", "rm", "--cached", "config.json", "-f"], cwd=str(PROJECT_DIR), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     subprocess.run(["git", "add", "."], cwd=str(PROJECT_DIR))
+    subprocess.run(["git", "reset", "HEAD", "config.json"], cwd=str(PROJECT_DIR), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     msg = f"Release v{versao}" + (f" - {notas}" if notas else "")
     subprocess.run(["git", "commit", "-m", msg], cwd=str(PROJECT_DIR))
     subprocess.run(["git", "push", "origin", "main"], cwd=str(PROJECT_DIR))
@@ -99,13 +102,10 @@ def publicar_release_github(versao, notas=""):
     print("\n🚀 [4/4] Publicando Release no GitHub...")
     tag = f"v{versao}"
     setup_exe = DIST_DIR / "PDF2MD_Setup.exe"
-    zip_file = DIST_DIR / "PDF2MD_V2_portable.zip"
 
     files_to_upload = []
     if setup_exe.exists():
         files_to_upload.append(str(setup_exe))
-    if zip_file.exists():
-        files_to_upload.append(str(zip_file))
 
     gh_path = shutil.which("gh")
     if gh_path and files_to_upload:
@@ -122,8 +122,6 @@ def publicar_release_github(versao, notas=""):
     print(f"Tag Git: {tag}")
     if setup_exe.exists():
         print(f"Instalador: {setup_exe}")
-    if zip_file.exists():
-        print(f"ZIP Portable: {zip_file}")
     print(f"Para anexar o instalador ao Release no GitHub, acesse:")
     print(f"👉 https://github.com/eumax39/pdf2md/releases/new?tag={tag}")
     print(f"========================================================\n")

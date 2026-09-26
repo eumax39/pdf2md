@@ -13,7 +13,7 @@ from PIL import Image
 from core.pdf_reader import PDFReader
 from core.markdown_writer import MarkdownWriter
 from core.historico import historico_app
-from core.utils import log_erro, log_info, log_aviso
+from core.utils import log_erro, log_info, log_aviso, get_data_root
 from ocr.manager import ocr_engine
 from core.configuracao import config_app
 from core.avaliador_qualidade import AvaliadorQualidadeTexto
@@ -76,9 +76,17 @@ class MotorConversao:
         if not bool(config_app.get("gerar_manifesto_conversao")):
             return None
         try:
-            caminho = pathlib.Path(pasta_base) / "conversao_pdf2md.json"
+            pasta_manifestos = get_data_root() / "manifestos"
+            pasta_manifestos.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            caminho = pasta_manifestos / f"conversao_{timestamp}.json"
+            if caminho.exists():
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                caminho = pasta_manifestos / f"conversao_{timestamp}.json"
+
             payload = {
                 "gerado_em": datetime.now().isoformat(timespec="seconds"),
+                "pasta_destino": str(pasta_base),
                 "modo": normalizar_modo_conversao(config_app.get("modo_conversao")),
                 "formato_saida": self.formato_saida,
                 "cancelado": bool(self.cancelar),
