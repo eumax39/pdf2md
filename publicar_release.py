@@ -1,11 +1,16 @@
 # publicar_release.py
 import os
 import sys
+import io
 import re
 import subprocess
 import shutil
 import pathlib
 import time
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 PYTHON_EXE = r"C:\Users\AB-ADVOGADOS\AppData\Local\Programs\Python\Python311\python.exe"
 PROJECT_DIR = pathlib.Path(__file__).parent.resolve()
@@ -49,17 +54,21 @@ def compilar_pyinstaller():
 
 def compilar_inno_setup(versao):
     print("\n🛠️ [2/4] Verificando Inno Setup (ISCC.exe)...")
+    local_app = os.environ.get("LOCALAPPDATA", "")
     candidatos = [
+        os.path.join(local_app, "Programs", "Inno Setup 6", "ISCC.exe"),
+        os.path.join(local_app, "Programs", "Inno Setup 7", "ISCC.exe"),
         r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
         r"C:\Program Files\Inno Setup 6\ISCC.exe",
         r"C:\Program Files (x86)\Inno Setup 5\ISCC.exe",
         r"C:\Program Files\Inno Setup 5\ISCC.exe",
     ]
-    iscc_path = None
-    for c in candidatos:
-        if os.path.exists(c):
-            iscc_path = c
-            break
+    iscc_path = shutil.which("ISCC") or shutil.which("ISCC.exe")
+    if not iscc_path:
+        for c in candidatos:
+            if c and os.path.exists(c):
+                iscc_path = c
+                break
 
     if SETUP_ISS.exists():
         texto_iss = SETUP_ISS.read_text(encoding="utf-8")
@@ -107,7 +116,19 @@ def publicar_release_github(versao, notas=""):
     if setup_exe.exists():
         files_to_upload.append(str(setup_exe))
 
-    gh_path = shutil.which("gh")
+    gh_path = shutil.which("gh") or shutil.which("gh.exe")
+    if not gh_path:
+        local_app = os.environ.get("LOCALAPPDATA", "")
+        candidatos_gh = [
+            os.path.join(local_app, "Programs", "GitHub CLI", "gh.exe"),
+            r"C:\Program Files\GitHub CLI\gh.exe",
+            r"C:\Program Files (x86)\GitHub CLI\gh.exe",
+        ]
+        for c in candidatos_gh:
+            if c and os.path.exists(c):
+                gh_path = c
+                break
+
     if gh_path and files_to_upload:
         print("Usando GitHub CLI (gh) para criar o Release automaticamente...")
         cmd = [gh_path, "release", "create", tag] + files_to_upload + ["--title", f"Versão {versao}", "--notes", notas or f"Release da versão {versao}"]
