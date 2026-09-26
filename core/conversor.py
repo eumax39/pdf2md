@@ -183,7 +183,7 @@ class MotorConversao:
         if not texto_limpo or texto_limpo.startswith("> [Erro"):
             return False
 
-        if modo_referencia_imagem and self._parece_rodape_pje(texto_limpo):
+        if self._parece_rodape_pje(texto_limpo):
             return False
 
         return len(re.sub(r"[^A-Za-z0-9]", "", texto_limpo)) > 20
@@ -372,7 +372,12 @@ class MotorConversao:
                         break
 
                     if "erro" in payload:
-                        raise RuntimeError(payload["erro"])
+                        msg_err = str(payload["erro"])
+                        log_erro(f"Erro na extração da página em '{caminho_pdf}': {msg_err}")
+                        self._qtd_alertas_ocr += 1
+                        if escritor is not None:
+                            escritor.escrever_pagina(f"\n> ⚠️ [Aviso: Erro ao fatiar página: {msg_err}]\n")
+                        continue
 
                     i = payload["pagina"]
                     porcentagem = payload["porcentagem"]

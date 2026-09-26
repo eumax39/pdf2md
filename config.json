@@ -15,5 +15,5 @@
     "usar_deepseek": true,
     "deepseek_api_key": "sk-992c54bb08d2436ebd9effdbe4fa8673",
     "limiar_qualidade_ocr": 0.8,
-    "modo_conversao": "Forçar OCR (Ignora Texto Nativo)"
+    "modo_conversao": "Híbrido (Texto Nativo + OCR em Imagem Relevante)"
 }

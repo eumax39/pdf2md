@@ -4,8 +4,8 @@ import sys
 import threading
 from multiprocessing import freeze_support
 
+from core.version import APP_VERSION
 Atualizador = None
-APP_VERSION = "2.2.0"
 
 def checar_dependencias():
     """Verifica dependências e tenta instalá-las de forma compatível com ambientes uv."""
