@@ -66,24 +66,30 @@ def get_logs_dir():
 
 
 def configurar_logs():
-    """Logs rotativos de operação, sem registrar conteúdo extraído dos PDFs."""
+    """Logs rotativos de operação e saída para o console/CMD."""
     logger = logging.getLogger("PDF2MD")
     if logger.handlers:
         return logger
 
     logger.setLevel(logging.INFO)
     caminho_log = get_logs_dir() / "pdf2md.log"
-    handler = RotatingFileHandler(
+    formatter = logging.Formatter(
+        "%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+        datefmt="%d/%m/%Y %H:%M:%S",
+    )
+    file_handler = RotatingFileHandler(
         caminho_log,
         maxBytes=2 * 1024 * 1024,
         backupCount=5,
         encoding="utf-8",
     )
-    handler.setFormatter(logging.Formatter(
-        "%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-        datefmt="%d/%m/%Y %H:%M:%S",
-    ))
-    logger.addHandler(handler)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
     logger.propagate = False
     return logger
 

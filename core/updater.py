@@ -16,20 +16,11 @@ import requests
 from packaging.version import InvalidVersion, Version
 
 from core.version import APP_NAME, APP_VERSION, REPO_NAME, REPO_OWNER
-from core.utils import get_app_root
+from core.utils import get_app_root, log_info, log_aviso, log_erro
 
 
 class Atualizador:
-    """Atualizador baseado em GitHub Releases.
-
-    Fluxo esperado:
-    1. Consulta ``/releases/latest`` do repositório público.
-    2. Compara a tag do release (ex.: ``v2.0.1``) com ``APP_VERSION``.
-    3. Seleciona o instalador Inno Setup anexado ao release.
-    4. Baixa para uma pasta temporária, valida tamanho e SHA-256 quando
-       o GitHub disponibilizar o digest do asset.
-    5. O chamador inicia o instalador e encerra o aplicativo.
-    """
+    """Atualizador baseado em GitHub Releases."""
 
     API_BASE = "https://api.github.com"
     CACHE_SEGUNDOS = 3600
@@ -58,52 +49,56 @@ class Atualizador:
         return tag.strip()
 
     def verificar(self, timeout: int = 10, force: bool = False):
-        """Verifica se há uma versão estável mais nova no GitHub.
-
-        Retorna um dicionário com as informações do release ou ``None``.
-        Falhas de rede não interrompem a inicialização do aplicativo.
-        """
+        """Verifica se há uma versão estável mais nova no GitHub."""
         agora = time.time()
+        log_info(f"[UPDATER] Checando atualizações no GitHub... (Local: {self.versao_atual})")
 
         if (
             not force
             and self._cache_resultado is not None
             and (agora - self._ultima_verificacao) < self.CACHE_SEGUNDOS
         ):
+            log_info("[UPDATER] Retornando resultado da verificação do cache.")
             return self._cache_resultado
 
         try:
+            log_info(f"[UPDATER] Solicitando GET em: {self.api_url}")
             response = self.session.get(self.api_url, timeout=(5, timeout))
             response.raise_for_status()
             data = response.json()
 
             tag_original = data.get("tag_name", "")
             ultima_versao = self._normalizar_tag(tag_original)
+            log_info(f"[UPDATER] Resposta do GitHub: tag='{tag_original}' -> versão_normalizada='{ultima_versao}'")
+            
             if not ultima_versao:
                 self._ultima_verificacao = agora
                 self._cache_resultado = None
+                log_aviso("[UPDATER] Tag remota vazia ou inválida.")
                 return None
 
             try:
                 versao_remota = Version(ultima_versao)
                 versao_local = Version(self.versao_atual)
-            except InvalidVersion:
+            except InvalidVersion as ve:
                 self._ultima_verificacao = agora
                 self._cache_resultado = None
+                log_erro(f"[UPDATER] Versão inválida ao comparar {ultima_versao} com {self.versao_atual}", ve)
                 return None
 
-            # O endpoint /latest já ignora drafts/prereleases; a checagem abaixo
-            # é uma proteção adicional caso o formato da resposta mude.
             if data.get("draft") or data.get("prerelease"):
                 self._ultima_verificacao = agora
                 self._cache_resultado = None
+                log_info("[UPDATER] Release remoto é um draft/prerelease. Ignorado.")
                 return None
 
             if versao_remota > versao_local:
+                assets = data.get("assets", []) or []
+                log_info(f"[UPDATER] ✨ Nova versão encontrada! Remote {versao_remota} > Local {versao_local}. Assets disponíveis: {[a.get('name') for a in assets]}")
                 result = {
                     "versao": ultima_versao,
                     "tag": tag_original,
-                    "assets": data.get("assets", []) or [],
+                    "assets": assets,
                     "body": data.get("body", "") or "",
                     "html_url": data.get("html_url", "") or "",
                     "published_at": data.get("published_at", "") or "",
@@ -112,28 +107,23 @@ class Atualizador:
                 self._ultima_verificacao = agora
                 return result
 
+            log_info(f"[UPDATER] Aplicativo já está na versão mais recente ({versao_local} >= {versao_remota}).")
             self._cache_resultado = None
             self._ultima_verificacao = agora
             return None
 
-        except requests.RequestException:
-            # Atualização nunca deve impedir o programa de abrir.
+        except requests.RequestException as re:
+            log_aviso(f"[UPDATER] Falha na comunicação HTTP com o GitHub: {re}")
             return None
-        except Exception:
+        except Exception as e:
+            log_erro("[UPDATER] Erro inesperado ao verificar atualizações", e)
             return None
 
     @staticmethod
     def selecionar_instalador(assets):
-        """Seleciona com segurança o instalador .exe do Release.
-
-        Preferência:
-        - nomes contendo ``setup``, ``installer`` ou ``instalador``;
-        - nomes contendo ``pdf2md``;
-        - se houver somente um .exe, ele é usado como fallback.
-
-        Evita assets com nomes típicos de portable/uninstaller.
-        """
+        """Seleciona com segurança o instalador .exe do Release."""
         executaveis = []
+        log_info(f"[UPDATER] Selecionando instalador entre {len(assets or [])} assets...")
         for asset in assets or []:
             nome = str(asset.get("name", "") or "")
             url = str(asset.get("browser_download_url", "") or "")
@@ -154,21 +144,25 @@ class Atualizador:
             if "portable" in baixo:
                 pontos -= 100
 
+            log_info(f"[UPDATER] Asset avaliado: name='{nome}', pontos={pontos}")
             executaveis.append((pontos, asset))
 
         if not executaveis:
+            log_aviso("[UPDATER] Nenhum executável (.exe) adequado encontrado nos assets.")
             return None
 
         executaveis.sort(key=lambda item: item[0], reverse=True)
         melhor_pontuacao, melhor = executaveis[0]
 
-        # Se existe apenas um .exe no release, aceitá-lo mesmo com nome genérico.
         if len(executaveis) == 1:
+            log_info(f"[UPDATER] Selecionado o único instalador disponível: '{melhor.get('name')}'")
             return melhor
 
-        # Com vários executáveis, só escolher automaticamente um instalador claro.
         if melhor_pontuacao >= 90:
+            log_info(f"[UPDATER] Selecionado o instalador com maior pontuação ({melhor_pontuacao}): '{melhor.get('name')}'")
             return melhor
+
+        log_aviso(f"[UPDATER] Pontuação máxima ({melhor_pontuacao}) insuficiente para seleção automática entre múltiplos assets.")
         return None
 
     @staticmethod
@@ -208,6 +202,7 @@ class Atualizador:
 
         caminho_final = temp_dir / nome_arquivo
         caminho_parcial = temp_dir / f"{nome_arquivo}.part"
+        log_info(f"[UPDATER] Baixando instalador de '{asset_url}' para '{caminho_final}'...")
 
         # Evita aproveitar um download parcial antigo.
         try:
@@ -267,9 +262,11 @@ class Atualizador:
             if callback_progress:
                 callback_progress(100.0)
 
+            log_info(f"[UPDATER] Download concluído com sucesso ({downloaded} bytes). Arquivo: {caminho_final}")
             return caminho_final
 
-        except Exception:
+        except Exception as e:
+            log_erro(f"[UPDATER] Falha durante o download do instalador de {asset_url}", e)
             try:
                 if caminho_parcial.exists():
                     caminho_parcial.unlink()
@@ -291,6 +288,7 @@ class Atualizador:
         """Inicia o Inno Setup no diretório atual do app e reabre a aplicação após a instalação."""
         caminho = Path(caminho_instalador)
         if not caminho.exists() or caminho.suffix.lower() != ".exe":
+            log_erro(f"[UPDATER] Arquivo de instalador não encontrado: {caminho}")
             raise FileNotFoundError(f"Instalador não encontrado: {caminho}")
 
         self._preparar_ambiente_externo_windows()
@@ -306,6 +304,10 @@ class Atualizador:
             "/CLOSEAPPLICATIONS",
             "/NORESTART",
         ]
+
+        log_info(f"[UPDATER] Executando instalador silencioso: {caminho}")
+        log_info(f"[UPDATER] Parâmetros de execução: {argumentos}")
+        log_info(f"[UPDATER] Pasta do app a atualizar (/DIR): {pasta_app}")
 
         creationflags = 0
         if sys.platform == "win32":

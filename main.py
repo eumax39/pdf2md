@@ -86,7 +86,8 @@ from app.telas import (
 from core.conversor import MotorConversao
 from core.configuracao import config_app
 from core.historico import historico_app
-from core.utils import get_resource_path, get_logs_dir, log_info, log_erro, log_aviso
+from core.utils import get_resource_path, get_logs_dir, get_app_root, get_data_root, log_info, log_erro, log_aviso
+from core.version import APP_NAME, APP_VERSION
 from core.diagnostico import texto_diagnostico, salvar_crash_report
 from ocr.manager import ocr_engine
 
@@ -113,6 +114,14 @@ class App(ctk.CTk, TkinterDnD.DnDWrapper):
     def __init__(self):
         super().__init__()
         self.TkdndVersion = TkinterDnD._require(self) 
+
+        log_info("==================================================")
+        log_info(f"Iniciando {APP_NAME} v{APP_VERSION}")
+        log_info(f"Executable: {sys.executable}")
+        log_info(f"App Root: {get_app_root()}")
+        log_info(f"Data Root: {get_data_root()}")
+        log_info(f"Logs Dir: {get_logs_dir()}")
+        log_info("==================================================")
 
         self.title("PDF a MD Converter Pro")
         self.geometry("1450x900")
