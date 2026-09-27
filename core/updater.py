@@ -16,6 +16,7 @@ import requests
 from packaging.version import InvalidVersion, Version
 
 from core.version import APP_NAME, APP_VERSION, REPO_NAME, REPO_OWNER
+from core.utils import get_app_root
 
 
 class Atualizador:
@@ -287,23 +288,23 @@ class Atualizador:
             pass
 
     def executar_instalador(self, caminho_instalador: Path) -> subprocess.Popen:
-        """Inicia o Inno Setup em modo silencioso e retorna o processo criado.
-
-        O encerramento do PDF2MD é responsabilidade da interface principal,
-        para que ocorra na thread do Tk e não em uma worker thread.
-        """
+        """Inicia o Inno Setup no diretório atual do app e reabre a aplicação após a instalação."""
         caminho = Path(caminho_instalador)
         if not caminho.exists() or caminho.suffix.lower() != ".exe":
             raise FileNotFoundError(f"Instalador não encontrado: {caminho}")
 
         self._preparar_ambiente_externo_windows()
 
+        pasta_app = get_app_root()
+        exe_app = pasta_app / "PDF2MD_V2.exe"
+
         argumentos = [
             str(caminho),
+            f"/DIR={pasta_app}",
             "/SILENT",
             "/SUPPRESSMSGBOXES",
             "/CLOSEAPPLICATIONS",
-            "/RESTARTAPPLICATIONS",
+            "/NORESTART",
         ]
 
         creationflags = 0
@@ -313,7 +314,7 @@ class Atualizador:
                 | getattr(subprocess, "DETACHED_PROCESS", 0)
             )
 
-        return subprocess.Popen(
+        proc = subprocess.Popen(
             argumentos,
             shell=False,
             cwd=str(caminho.parent),
@@ -321,6 +322,21 @@ class Atualizador:
             creationflags=creationflags,
             env=os.environ.copy(),
         )
+
+        if sys.platform == "win32" and exe_app.exists():
+            cmd_relaunch = (
+                f"Start-Sleep -Seconds 1; "
+                f"Wait-Process -Id {proc.pid} -ErrorAction SilentlyContinue; "
+                f"Start-Sleep -Seconds 1; "
+                f"Start-Process -FilePath '{exe_app}'"
+            )
+            subprocess.Popen(
+                ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", cmd_relaunch],
+                creationflags=creationflags,
+                close_fds=True,
+            )
+
+        return proc
 
     # Compatibilidade com chamadas antigas. Não encerra a aplicação aqui.
     def baixar_e_instalar(
