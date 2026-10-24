@@ -38,7 +38,7 @@ class Sidebar(ctk.CTkFrame):
         self.btn_projetos.grid(row=2, column=0, padx=14, pady=4, sticky="ew")
 
         self.btn_configs = ctk.CTkButton(
-            self, text="  ⚙️  Configurações & IA", anchor="w", height=38,
+            self, text="  ⚙️  Configurações", anchor="w", height=38,
             fg_color="transparent", text_color="#a0aec0", hover_color="#151e29",
             corner_radius=8, font=ctk.CTkFont(size=13),
             command=lambda: self.clicar("configs")

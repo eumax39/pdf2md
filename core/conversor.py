@@ -16,8 +16,6 @@ from core.historico import historico_app
 from core.utils import log_erro, log_info, log_aviso, get_data_root
 from ocr.manager import ocr_engine
 from core.configuracao import config_app
-from core.avaliador_qualidade import AvaliadorQualidadeTexto
-from core.deepseek import ClienteDeepSeek
 from core.normalizador import NormalizadorTextoJuridico
 
 MODO_HIBRIDO = "Híbrido (Texto Nativo + OCR em Imagem Relevante)"
@@ -59,9 +57,6 @@ class MotorConversao:
         self.cancelar = False
         self._qtd_alertas_ocr = 0
         self._paginas_alerta_ocr = []
-        limiar_config = float(config_app.get("limiar_qualidade_ocr") or 0.80)
-        self.avaliador_qualidade = AvaliadorQualidadeTexto(limiar_padrao=limiar_config)
-        self.cliente_deepseek = ClienteDeepSeek()
         self.normalizador = NormalizadorTextoJuridico()
 
 
@@ -514,17 +509,6 @@ class MotorConversao:
                         self._stats["paginas_ocr"] += 1
                     elif tem_texto_util:
                         self._stats["paginas_texto_nativo"] += 1
-
-                    # Refinamento opcional via DeepSeek apenas em páginas que passaram por OCR e com qualidade inferior a 80%
-                    usar_ds = bool(config_app.get("usar_deepseek")) and bool(config_app.get("deepseek_api_key"))
-                    if usar_ds and precisa_ocr and texto_extraido and not texto_extraido.startswith("> [Erro"):
-                        limiar = float(config_app.get("limiar_qualidade_ocr") or 0.80)
-                        if not self.avaliador_qualidade.eh_texto_de_alta_qualidade(texto_extraido, limiar=limiar):
-                            score_atual = self.avaliador_qualidade.calcular_score(texto_extraido)
-                            log_info(f"Página {i+1}: Score de qualidade {int(score_atual*100)}% (< {int(limiar*100)}%). Refinando com DeepSeek API...")
-                            texto_ds = self.cliente_deepseek.refinar_texto_ocr(texto_extraido, numero_pagina=i+1)
-                            if texto_ds and texto_ds.strip():
-                                texto_extraido = texto_ds
 
                     # Normalização e higienização jurídica do texto (preserva IDs de PJe, des-hifena e padroniza cabeçalhos)
                     texto_extraido = self.normalizador.normalizar_pagina(texto_extraido)

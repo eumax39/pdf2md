@@ -5,6 +5,15 @@ import shutil
 from core.utils import get_app_root, get_data_root
 
 
+CHAVES_OBSOLETAS = (
+    "provedor_ia",
+    "groq_api_key",
+    "usar_deepseek",
+    "deepseek_api_key",
+    "limiar_qualidade_ocr",
+)
+
+
 def _obter_caminho_config():
     caminho_data = get_data_root() / "config.json"
     if not caminho_data.exists():
@@ -37,9 +46,6 @@ class Configuracao:
             "imagem_ref_min_area_ratio": 0.04,
             "modo_compatibilidade": False,
             "gerar_manifesto_conversao": True,
-            "usar_deepseek": True,
-            "deepseek_api_key": "",
-            "limiar_qualidade_ocr": 0.80
         }
         self.carregar()
 
@@ -50,6 +56,12 @@ class Configuracao:
                 with open(self.caminho_config, "r", encoding="utf-8") as f:
                     configs_salvas = json.load(f)
                     self.configs.update(configs_salvas) # Atualiza os padrões com o que estava salvo
+                # Remove chaves de API e opções da antiga integração com IA externa.
+                obsoletas = [c for c in CHAVES_OBSOLETAS if c in self.configs]
+                if obsoletas:
+                    for chave in obsoletas:
+                        self.configs.pop(chave, None)
+                    self.salvar()
             except Exception as e:
                 print(f"Erro ao ler configurações: {e}. Usando padrões.")
         else:
