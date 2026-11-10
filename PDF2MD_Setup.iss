@@ -1,7 +1,7 @@
 [Setup]
 AppId={{D37F20B2-1E82-4C10-91B1-02E098F3971C}}
 AppName=PDF2MD Converter Pro
-AppVersion=2.2.6
+AppVersion=2.3.0
 AppPublisher=Maxwell Barros Veras de Araujo
 AppPublisherURL=https://github.com/eumax39/pdf2md
 AppSupportURL=https://github.com/eumax39/pdf2md
